@@ -2,6 +2,10 @@
 
 自己的 WorkBuddy 技能集合。一个技能一个目录，目录名即技能名。
 
+## 许可协议
+
+本项目采用 [PolyForm Noncommercial License 1.0.0](./LICENSE)：个人研究、学习、实验、非商业用途可自由使用；**任何商业用途需单独获得作者授权**。详见 [LICENSE](./LICENSE) 全文。
+
 ## 技能列表
 
 | 技能 | 说明 |
