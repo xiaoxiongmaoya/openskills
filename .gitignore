@@ -24,3 +24,7 @@ Thumbs.db
 
 # WorkBuddy 工作区数据
 .workbuddy/
+
+# 运行时产物
+captcha.png
+**/captcha.png

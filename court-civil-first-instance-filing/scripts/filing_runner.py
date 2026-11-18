@@ -432,7 +432,9 @@ def run(spec_path: Path, apply: bool, submit: bool, mediation: str, id_photo: st
     for p in defendants_of(spec):
         c.save_party(party_payload(p, "defendant", filing_id, fyid, ajlx, case_type))
         print(f"当事人：{p['name']} 已保存（{role_label(case_type, 'defendant')}）")
-    c.sync_dsr_mc(filing_id, ajlx, case_type=case_type)
+    c.sync_dsr_mc(filing_id, ajlx, case_type=case_type,
+                  cause=str(spec["case"].get("origin_cause") or spec["case"].get("cause") or ""),
+                  ajmc=str(spec["case"].get("ajmc") or ""))
     print(f"参与人展示串：{role_label(case_type, 'plaintiff')}/{role_label(case_type, 'defendant')}前缀已同步")
 
     agent = spec.get("agent") or {}
@@ -565,15 +567,15 @@ def _finalize(c: CourtClient, case_dir: Path, spec_path: Path, filing_id: str, f
         decisions["mediation"] = mediation
         print(f"先行调解：{'同意' if mediation == 'yes' else '不同意'}（提交时随 layy 一并写入）")
 
-    print("=== 被告/被执行人身份证照片（须用户决定）===")
-    print("身份信息（证件号）已照填；照片是否上传需单独确认。")
-    if id_photo not in ("upload", "skip"):
-        if is_zx:
-            id_photo = "skip"
-            print("执行案件未指定，默认按「不上传」处理（如需上传请显式给 --defendant-id-photo upload）")
-        else:
+    if is_zx:
+        print("=== 被告身份证照片：不适用（执行案件材料里没有被执行人身份证照片槽）===")
+        id_photo = "skip"
+    else:
+        print("=== 被告身份证照片（须用户决定）===")
+        print("身份信息（证件号）已照填；照片是否上传需单独确认。")
+        if id_photo not in ("upload", "skip"):
             die("必须由用户决定是否上传被告身份证照片：--defendant-id-photo upload|skip")
-    print(f"被告身份证照片：{'上传' if id_photo == 'upload' else '不上传'}")
+        print(f"被告身份证照片：{'上传' if id_photo == 'upload' else '不上传'}")
     decisions["defendant_id_photo"] = id_photo
 
     # 一次性回读法院真值 + 自查（confirm_snapshot 内部已含 precheck，不再单独跑一遍）
@@ -584,6 +586,7 @@ def _finalize(c: CourtClient, case_dir: Path, spec_path: Path, filing_id: str, f
     print("=== 法院端实际存储（回读，非本地值）===")
     if is_zx:
         print(f"  执行依据：{snap['cause'].get('zxyjAh')} {'OK' if snap['cause'].get('display_ok') else '[!!] 缺失'}")
+        print(f"  案名：{snap.get('ajmc') or '[!!] 空（会被服务端拒）'}")
     else:
         print(f"  案由：{snap['cause']['laay']} / 节点 {snap['cause']['laayMz']}"
               f" {'OK' if snap['cause']['display_ok'] and snap['cause']['id_ok'] else '[!!] 字段写错'}")

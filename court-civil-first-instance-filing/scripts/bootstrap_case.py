@@ -95,7 +95,7 @@ EXEC_SPEC_TEMPLATE: Dict[str, Any] = {
     "case_type": "zx",
     "user_type": "gryh",
     "court": {"fyid": "", "region": ""},
-    "case": {"cause": "", "amount": "", "ajmc": ""},
+    "case": {"cause": "", "origin_cause": "", "amount": "", "ajmc": ""},
     "plaintiff": {"name": "", "gender": "", "birth": "", "age": 0,
                   "id_card": "", "phone": "", "address": ""},
     "defendant": {"name": "", "gender": "", "birth": "", "age": 0,
@@ -194,6 +194,11 @@ def bootstrap(args: argparse.Namespace) -> Dict[str, Any]:
         spec = json.loads(json.dumps(template))
         spec["court"] = {"fyid": args.fyid, "region": args.region}
         spec["case"]["cause"] = args.cause
+        if case_type == "zx":
+            # 执行案件的案名不会自己生成，为空时法院列表显示「名称暂无」且提交必报 RMFY109905
+            spec["case"]["origin_cause"] = args.cause
+            suffix = args.cause or ""
+            spec["case"]["ajmc"] = f"{plaintiffs[0]}申请执行{defendants[0]}{suffix}一案"
         spec["plaintiff"]["name"] = plaintiffs[0]
         spec["defendant"]["name"] = defendants[0]
         if len(plaintiffs) > 1:

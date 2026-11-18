@@ -55,7 +55,9 @@ def render(snap: Dict[str, Any]) -> str:
                          f"对照正确值：laay={extra.get('name')!r} laayMz={extra.get('id')!r}")
         lines.append(f"标的额：{snap.get('amount')}")
 
-    lines.append(f"案件名：{snap.get('ajmc') or '-'}")
+    ajmc = str(snap.get("ajmc") or "").strip()
+    lines.append(f"案件名：{ajmc or '（空）'} {mark(bool(ajmc))}"
+                 + ("" if ajmc else f"  {FLAG} 案名为空会被服务端拒（RMFY109905），先跑 --stage fill 重算"))
     mc = snap.get("dsrMc") or {}
     lines.append(f"参与人：{mc.get('value')!r} {mark(bool(mc.get('ok')))}")
 
@@ -79,14 +81,18 @@ def render(snap: Dict[str, Any]) -> str:
     lines.append("提交前答疑")
     med = gates.get("mediation")
     if med is not None:
-        lines.append(f"  {mark(bool(med.get('ok')))} 先行调解：{med.get('value')}（{med.get('code') or '空'}）")
-        if med.get("note"):
-            lines.append(f"        {FLAG} {med['note']}")
-    elif is_zx:
-        lines.append("  - 先行调解：不适用（执行案件）")
+        if is_zx:
+            lines.append("  - 先行调解：不适用（执行案件）")
+        else:
+            lines.append(f"  {mark(bool(med.get('ok')))} 先行调解：{med.get('value')}（{med.get('code') or '空'}）")
+            if med.get("note") and not med.get("ok"):
+                lines.append(f"        {FLAG} {med['note']}")
     photo = gates.get("defendant_id_photo") or {}
-    lines.append(f"  {mark(bool(photo.get('ok')))} 被告身份证照片：{photo.get('value')}"
-                 f"（槽内{'有' if photo.get('uploaded') else '无'}被告证件文件）")
+    if is_zx:
+        lines.append(f"  {mark(bool(photo.get('ok')))} 被告身份证照片：不适用（执行案件）")
+    else:
+        lines.append(f"  {mark(bool(photo.get('ok')))} 被告身份证照片：{photo.get('value')}"
+                     f"（槽内{'有' if photo.get('uploaded') else '无'}被告证件文件）")
 
     claims = snap.get("claims") or {}
     lines.append(("执行请求" if is_zx else "诉请")

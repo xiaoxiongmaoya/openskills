@@ -1372,12 +1372,16 @@ class CourtClient:
                 parts.append(label + "：" + "，".join(buckets[idx]))
         return "；".join(parts)
 
-    def sync_dsr_mc(self, filing_id: str, ajlx: str = "", case_type: str = "sp") -> Dict[str, Any]:
+    def sync_dsr_mc(self, filing_id: str, ajlx: str = "", case_type: str = "sp",
+                    cause: str = "", ajmc: str = "") -> Dict[str, Any]:
         """按当前当事人重算 dsrMc / ajmc 并写回 layy。
 
         **必须 refresh**：刚 save/delete 完当事人时，缓存里的 dsrs 还是旧的
         （法院自动塞的“律师本人=原告”那条），用缓存会写出“原告：张三”。
-        执行案件（case_type="zx"）用 100225 族诉讼地位码，且不拼 ajmc（无案由）。
+
+        执行案件（case_type="zx"）用 100225 族诉讼地位码，案名按
+        `{申请执行人}申请执行{被执行人}{原审案由}一案` 拼（法院页面显示“名称暂无”时
+        就是 ajmc 为空，提交必报 `RMFY109905`，实测踩坑）。
         """
         roles = ROLE_CODES.get(case_type) or ROLE_CODES["sp"]
         detail = self.get_filing_detail(filing_id, refresh=True).get("data") or {}
@@ -1389,9 +1393,19 @@ class CourtClient:
             updates["dsrMc"] = mc
         plaintiff = next((p for p in parties if p.get("ssdw") == roles["plaintiff"]), None)
         defendant = next((p for p in parties if p.get("ssdw") == roles["defendant"]), None)
-        cause = str(layy.get("laay") or "")
-        if plaintiff and defendant and cause and case_type == "sp":
-            updates["ajmc"] = f"{plaintiff.get('xm', '')}诉{defendant.get('xm', '')}{cause}一案"
+        sqr = str((plaintiff or {}).get("xm") or (plaintiff or {}).get("dwmc") or "")
+        bsqr = str((defendant or {}).get("xm") or (defendant or {}).get("dwmc") or "")
+        if case_type == "zx":
+            explicit = str(ajmc or "").strip()
+            if explicit:
+                updates["ajmc"] = explicit          # spec 显式给案名 → 强制覆盖
+            elif sqr and bsqr and not str(layy.get("ajmc") or "").strip():
+                suffix = str(cause or "").strip()   # 已生成过就不动，避免冲掉人工修改
+                updates["ajmc"] = f"{sqr}申请执行{bsqr}{suffix}一案"
+        else:
+            cause_name = str(layy.get("laay") or "")
+            if plaintiff and defendant and cause_name:
+                updates["ajmc"] = f"{sqr}诉{bsqr}{cause_name}一案"
         return self.patch_layy(updates)
 
     def precheck(self, filing_id: str, decisions: Optional[Dict[str, str]] = None,
@@ -1438,6 +1452,10 @@ class CourtClient:
                 problems.append("缺少被执行人")
             if dsrs and not str(layy.get("dsrMc") or "").strip():
                 problems.append("layy.dsrMc 为空，先调 sync_dsr_mc()")
+            # ajmc 为空 = 列表显示「名称暂无」，提交必报 RMFY109905（实测）
+            if not str(layy.get("ajmc") or "").strip():
+                problems.append("案名为空（ajmc）：法院列表显示「名称暂无」，提交必报 RMFY109905，"
+                                "先调 sync_dsr_mc(case_type='zx', cause=原审案由)")
             # 执行申请书/执行依据文书：法院标"非必传"，但缺了必被退
             for code in ("11800016-2", "11800016-8"):
                 slot = next((s for s in (data.get("sscls") or []) if s.get("cllx") == code), None)
@@ -1523,6 +1541,13 @@ class CourtClient:
         if not layy:
             raise CourtApiError("未能从立案详情提取 layy 对象，请检查草稿是否有效")
         layy.setdefault("id", filing_id)
+        if case_type == "zx":
+            # 实测：提交体带上执行标的（zxyjs[0] 里的 sqzxbdzl/sqzxbdje）才稳，
+            # layy 自身不回写这两个字段，必须显式搬运。
+            zx = ((detail.get("data") or {}).get("zxyjs") or [{}])[0]
+            for key in ("sqzxbdzl", "sqzxbdje"):
+                if zx.get(key) and not layy.get(key):
+                    layy[key] = zx.get(key)
         mediation = (decisions or {}).get("mediation", "").strip().lower()
         if case_type == "sp" and mediation in ("yes", "no"):
             # 调解意愿只能随提交对象一起落库，不能单独 PATCH
@@ -1542,6 +1567,14 @@ class CourtClient:
         这不是接口错，等一会儿再试。
         """
         return self.request_json("post", f"{PREFIX_FILING}/api/v3/layy/chlayy/{filing_id}", {})
+
+    def delete_filing(self, filing_id: str) -> Dict[str, Any]:
+        """彻底删除草稿：`DELETE /api/v3/layy/{id}`（实测 200）。
+
+        只对草稿有效；已提交的单先 `withdraw_layy` 退回草稿再删。
+        抓包/联调留下的测试草稿用它清掉，别让账号里堆垃圾。
+        """
+        return self.request_json("delete", f"{PREFIX_FILING}/api/v3/layy/{filing_id}")
 
     def diagnose_submit_error(self, filing_id: str, message: str) -> str:
         if "起诉状不能为空" not in (message or ""):
@@ -1773,8 +1806,11 @@ class CourtClient:
                        if is_zx else
                        {"ssqq_len": len(layy.get("ssqq") or ""), "ssly_len": len(layy.get("ssly") or "")}),
             "materials": materials,
-            "gates": ({"defendant_id_photo": {"value": photo_decision, "uploaded": photo_uploaded,
-                                              "ok": photo_ok}} if is_zx else {
+            # 执行案件：无先行调解，材料里也没有被执行人身份证照片槽 —— 两项闸门都不适用
+            "gates": ({"mediation": {"value": "不适用", "code": "", "ok": True,
+                                     "note": "执行案件无先行调解"},
+                       "defendant_id_photo": {"value": "不适用", "uploaded": photo_uploaded,
+                                              "ok": True}} if is_zx else {
                 "mediation": {"value": mediation_text, "code": mediation_code,
                               "ok": bool(mediation_code) or chosen in ("yes", "no"),
                               "note": mediation_note},

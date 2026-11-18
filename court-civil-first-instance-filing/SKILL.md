@@ -13,7 +13,7 @@ description_en: "Log in to court litigation platforms and complete civil first-i
 
 category: "writing"
 
-version: "1.4.0"
+version: "1.5.0"
 
 author: "court-assistant"
 ---
@@ -106,6 +106,12 @@ fill 阶段逐个 `POST dsr`（原告在前、被告在后），再 `sync_dsr_mc
 | 先行调解 | 必问 | **不适用** |
 | 材料槽 | 起诉状/身份/证据/送达/账户 | 执行申请书/执行依据文书/申请人身份/委托书/送达/收款账户 |
 | 诉讼地位 | 原告 `030109-1` / 被告 `-2` | 申请执行人 `100225-1` / 被执行人 `-2` |
+| 案名 `ajmc` | 程序自动拼 `X诉Y案由一案` | **不会自动生成，必须拼**（空 → 提交报 `RMFY109905`） |
+| 执行请求/理由 | `ssqq` / `ssly` | `zxyjs[0].zxqq` / `.zxyjzw`（**不走 ssqq**） |
+| 执行标的 | — | `zxyjs[0].sqzxbdzl` + `.sqzxbdje` |
+
+⚠️ 执行案件提交失败只看三件事：`ajmc` 非空、`zxyjs[0]` 的 `zxqq`/`zxyjzw`/`sqzxbdzl` 齐、
+申请执行人 `hjszd` 非空。其余都不是原因。
 
 ```bash
 # 建执行案件骨架（case_type=zx 时 --cause 可省）
