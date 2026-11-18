@@ -146,10 +146,18 @@ def check(case_dir: Path, allow_missing_source: bool = False,
                 "客户只给未盖章 .doc 时不能跳过，必须先补盖章扫描件）"
             )
 
-    # ---- 文书信息源必须是 Word（执行案件的当事人信息来自执行申请书，不强制 Word）----
+    # ---- 信息源优先级：Word 原稿 > 判决书 PDF 文本层 > 扫描件（两类案件统一）----
     drafts = [p for p in (case_dir / "04未签稿").glob("*") if p.suffix.lower() in SOURCE_EXT]
-    if not drafts and not allow_missing_source and not is_zx:
-        errors.append("04未签稿 里没有 Word 原稿：当事人/金额/证件号必须从 Word 取，不能解析扫描 PDF")
+    if not drafts and not allow_missing_source:
+        if is_zx:
+            # 执行案件的必备材料本身就是判决书 PDF / 签字扫描件，客户常常不给 Word；
+            # 不阻断，但必须显式标注「非 Word 来源，逐项人工核对」。
+            warnings.append(
+                "04未签稿 无 Word 原稿：当事人/案号/金额将按判决书 PDF 或扫描件读取，"
+                "提交前须逐项人工核对（Word 优先，能要到原稿就要）"
+            )
+        else:
+            errors.append("04未签稿 里没有 Word 原稿：当事人/金额/证件号必须从 Word 取，不能解析扫描 PDF")
 
     # ---- 原始包是否还有没归位的文件 ----
     raw_dir = case_dir / "01原始包" / "解压"

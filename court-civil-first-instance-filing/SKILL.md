@@ -13,7 +13,7 @@ description_en: "Log in to court litigation platforms and complete civil first-i
 
 category: "writing"
 
-version: "1.5.0"
+version: "1.5.1"
 
 author: "court-assistant"
 ---
@@ -219,7 +219,9 @@ python scripts/bind_filing.py --case-dir "<案件目录>" --new-filing-id <新 l
 1. `bootstrap_case.py` 建骨架 → `organize_materials.py` 整材料（输出 `unrecognized` 需人工归位）。
 2. `preflight_materials.py` 离线门禁：槽位齐备 / 律师证在 / Word 源在 / 文件存在 / 格式合法。**门禁不过不许建档**——建档后再发现材料错，要么重建单、要么重传一轮（一案 80+ 次请求白跑）。`filing_runner` 会默认先跑门禁，`--skip-preflight` 才能绕过。
 2. 收集参数：`base_url`、账号、密码、用户类型（律师 = `lsyh`）。
-   **文书信息只解析 Word（`read_office_text.py`），不读 PDF**：扫描件 OCR 会把 `200000` 读成 `20000`、把「李明」读成「李朋」。Word 原稿必须留在 `04未签稿/`，整理时不许丢。
+   **文书信息一律 Word 优先（`read_office_text.py`），不拿 PDF 当数据源**：扫描件 OCR 会把 `200000` 读成 `20000`、把「李明」读成「李朋」。Word 原稿必须留在 `04未签稿/`，整理时不许丢。
+   两类案件同一条规则，差别只在缺 Word 时：**一审直接阻断**（起诉状要按 Word 生成）；
+   **执行降级放行但打警告**（必备材料本身就是判决书 PDF/签字扫描件），降级时必须逐项人工核对。
 3. **诉状没写受理法院时**（要素式诉状常见），按管辖规则给候选再让用户选：
 
 ```bash
