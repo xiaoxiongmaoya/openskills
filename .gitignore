@@ -1,0 +1,23 @@
+# 凭证 / 会话 / 案件数据
+.court_session.json
+.court_upload.state
+.env
+*.env
+**/05案件信息/
+**/案件库/
+**/通用件/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 系统
+.DS_Store
+Thumbs.db
+
+# 编辑器
+.idea/
+.vscode/
