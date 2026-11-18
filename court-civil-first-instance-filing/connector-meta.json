@@ -1,0 +1,22 @@
+{
+  "name": "court-civil-first-instance-filing",
+  "name_zh": "法院民事一审在线立案",
+  "name_en": "Court Civil First Instance Online Filing",
+  "description": "登录法院诉讼服务平台并完成民事一审在线立案全链路：登录、建草稿、案由/当事人/代理人/标的额、材料上传、诉请、提交、状态查询。",
+  "description_zh": "登录法院诉讼服务平台（默认 zxfw.court.gov.cn，兼容同构各地法院网），完成民事一审在线立案全链路：SM2 登录、建草稿、匹配法院、案由/当事人/代理人/标的额、材料上传（签名→OSS→槽位）、诉请、人工确认后提交、按 id 查状态。凭证零硬编码。",
+  "description_en": "Log in to court litigation platforms and complete civil first-instance online filing: SM2 login, draft, court match, cause/parties/agent/amount, material upload, claims, confirm-then-submit, status query by filing id.",
+  "source": "court-civil-first-instance-filing",
+  "type": "skill-only",
+  "version": "1.3.0",
+  "minWorkbuddyVersion": "4.24.0",
+  "examples_zh": [
+    "登录我的法院诉讼服务平台账号，准备立一个民事一审案",
+    "帮我起草一起民间借贷纠纷的民事一审立案材料",
+    "查询我刚提交的立案申请当前状态"
+  ],
+  "examples_en": [
+    "Log in to my court litigation service account to prepare a civil first-instance filing",
+    "Draft civil first-instance filing materials for a loan dispute",
+    "Query the current status of my just-submitted filing"
+  ]
+}
