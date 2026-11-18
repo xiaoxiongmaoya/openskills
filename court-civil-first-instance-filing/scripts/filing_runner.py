@@ -266,6 +266,14 @@ def party_payload(src: Dict[str, Any], role: str, filing_id: str, fyid: str, ajl
         "gj": "1501_GB0006-156", "cgj": "中国",
         "sfsqr": "1501_000010-1" if role == "plaintiff" else "1501_000010-2",
     }
+    # 执行案件：申请执行人的「住所地（户籍所在地）」hjszd 是必填（实测页面标 *），
+    # 只写 dz 会显示"待补全"，且提交被拒（RMFY109905）。
+    if case_type == "zx":
+        body["ssdwMc"] = "申请执行人" if role == "plaintiff" else "被执行人"
+        body["ssdwType"] = "yg" if role == "plaintiff" else "bg"
+        body["dsrType"] = "zrr"
+        if role == "plaintiff":
+            body["hjszd"] = src.get("domicile") or src.get("address", "")
     if src.get("id_card"):
         body.update({
             "zjlx": "1501_000015-1", "czjlx": "居民身份证", "zjhm": src["id_card"],
@@ -458,8 +466,12 @@ def run(spec_path: Path, apply: bool, submit: bool, mediation: str, id_photo: st
         print(f"标的额：{spec['case'].get('amount')}")
 
     claims = spec["claims"]
-    c.save_claims({"layyid": filing_id, "ssqq": claims["ssqq"], "ssly": claims["ssly"]})
-    print("执行请求与执行理由已保存" if is_zx else "诉请与事实理由已保存")
+    if is_zx:
+        # 执行请求/理由已在 _save_exec_basis 写进 zxyjs[0].zxqq / .zxyjzw，不走一审 ssqq 接口
+        print("执行请求与执行理由：已随执行依据保存（zxyjs[0].zxqq / zxyjzw）")
+    else:
+        c.save_claims({"layyid": filing_id, "ssqq": claims["ssqq"], "ssly": claims["ssly"]})
+        print("诉请与事实理由已保存")
 
     if stage == "fill":
         _refresh_note(case_dir, spec_path, filing_id, c, fyid)
@@ -497,8 +509,15 @@ def run(spec_path: Path, apply: bool, submit: bool, mediation: str, id_photo: st
 
 
 def _save_exec_basis(c: CourtClient, spec: Dict[str, Any], filing_id: str, fyid: str) -> None:
-    """执行立案必填的两块：原审信息 + 执行依据（实测两个 PATCH）。"""
-    zxyj = spec.get("zxyj") or {}
+    """执行立案必填：原审信息 + 执行依据/执行标的（实测两个 PATCH）。
+
+    执行请求与执行理由挂在 `zxyjs[0].zxqq` / `zxyjs[0].zxyjzw` 上，**不是**一审判的 `ssqq`/`ssly`。
+    只写 ssqq 会导致提交报 `RMFY109905 提交网上立案信息失败`。
+    """
+    zxyj = dict(spec.get("zxyj") or {})
+    claims = spec.get("claims") or {}
+    zxyj.setdefault("zxqq", claims.get("ssqq", ""))
+    zxyj.setdefault("zxyjzw", claims.get("ssly", ""))
     c.save_ysxx(filing_id, fyid, {
         "ysfyid": zxyj.get("ysfyid") or zxyj.get("jbjg"),
         "ysfymc": zxyj.get("ysfymc") or zxyj.get("jbjgMc"),
@@ -509,6 +528,12 @@ def _save_exec_basis(c: CourtClient, spec: Dict[str, Any], filing_id: str, fyid:
     print(f"原审信息：{zxyj.get('ysajah') or zxyj.get('ah')} 已保存")
     c.save_zxyj(filing_id, fyid, zxyj)
     print(f"执行依据：{zxyj.get('lb')} / {zxyj.get('ah')} 已保存")
+    bd_zl = zxyj.get("bd_zl") or ""
+    if isinstance(bd_zl, (list, tuple)):
+        bd_zl = ",".join(str(x) for x in bd_zl)
+    if bd_zl:
+        c.patch_layy({"id": filing_id, "sqzxbdzl": bd_zl})
+        print(f"执行标的类型：{bd_zl}（金额 {zxyj.get('bd_je') or '-'}）")
 
 
 def _finalize(c: CourtClient, case_dir: Path, spec_path: Path, filing_id: str, fyid: str,

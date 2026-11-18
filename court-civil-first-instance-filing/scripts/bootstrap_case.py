@@ -106,6 +106,7 @@ EXEC_SPEC_TEMPLATE: Dict[str, Any] = {
     "zxyj": {
         "lb": "民商", "ah": "", "jbjg": "", "jbjgMc": "",
         "ysfyid": "", "ysfymc": "", "ysajbh": "", "ysajAjbs": "", "ysajah": "",
+        "bd_zl": ["1501_100279-1"], "bd_je": "",
     },
     "materials": [
         {"slot": "执行申请书", "files": []},

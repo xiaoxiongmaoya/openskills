@@ -683,7 +683,13 @@ class CourtClient:
         if not isinstance(data, dict):
             raise CourtApiError("法院接口返回结构异常", status_code=500)
         if not self._looks_like_success(data):
-            raise CourtApiError(self._extract_message(data, "法院接口调用失败"), status_code=400, payload=data)
+            message = self._extract_message(data, "法院接口调用失败")
+            code = str(data.get("errorCode") or "").strip()
+            if code:
+                # 法院的 message 经常是泛化文案（如"提交网上立案信息失败"），
+                # 把 errorCode 带出来，排查时能直接对上服务端日志。
+                message = f"{message}（errorCode={code}）"
+            raise CourtApiError(message, status_code=400, payload=data)
         return data
 
     # ---------------- 会话持久化 ---------------- #
@@ -1036,15 +1042,24 @@ class CourtClient:
 
     # ---------------- 执行立案专属（真实抓包） ---------------- #
     def save_zxyj(self, layy_id: str, fyid: str, zxyj: dict) -> Dict[str, Any]:
-        """写「执行依据」：`PATCH /api/v3/zxyj`。
+        """写「执行依据 + 执行标的」：`PATCH /api/v3/zxyj`。
 
         `zxyj` 需含：`lb`(类别名，如"民商")、`ah`(执行依据文书文号)、
         `jbjg`(作出单位代码，数字)、`jbjgMc`(单位名称)；`ysaj*` 可选（来自原审案号候选）。
+
+        执行标的与执行请求同在这个记录上（实测前端 submit 逻辑）：
+          - `bd_zl`: 标的种类编码列表，如 ["1501_100279-1"]（金钱给付）
+          - `bd_je`: 金钱给付金额
+          - `zxqq`: 执行请求正文
+          - `zxyjzw`: 执行理由正文（对应字段名是 zxyjzw，不是 zxly）
         """
         lb = str(zxyj.get("lb") or "民商")
         code = ZXYJ_LB.get(lb)
         if not code:
             raise CourtApiError(f"未知执行依据类别「{lb}」，可选：{'、'.join(ZXYJ_LB)}")
+        bd_zl = zxyj.get("bd_zl") or zxyj.get("sqzxbdzl") or ""
+        if isinstance(bd_zl, (list, tuple)):
+            bd_zl = ",".join(str(x) for x in bd_zl)
         payload = {
             "jbjg": zxyj.get("jbjg"),
             "jbjgMc": str(zxyj.get("jbjgMc") or zxyj.get("jbjg_mc") or ""),
@@ -1053,7 +1068,13 @@ class CourtClient:
             "zxyjmc": lb,
             "layyId": layy_id,
             "fyId": fyid,
+            "sqzxbdzl": str(bd_zl),
+            "sqzxbdje": str(zxyj.get("bd_je") or zxyj.get("sqzxbdje") or ""),
+            "zxqq": str(zxyj.get("zxqq") or ""),
+            "zxyjzw": str(zxyj.get("zxyjzw") or zxyj.get("zxly") or ""),
         }
+        if zxyj.get("id"):
+            payload["id"] = zxyj["id"]
         return self.request_json("patch", f"{PREFIX_FILING}/api/v3/zxyj", payload)
 
     def save_ysxx(self, layy_id: str, fyid: str, ysxx: dict) -> Dict[str, Any]:
@@ -1396,12 +1417,20 @@ class CourtClient:
 
         roles = ROLE_CODES.get(case_type) or ROLE_CODES["sp"]
         if case_type == "zx":
-            if not str(layy.get("zxyjAh") or layy.get("ah") or "").strip() and not (data.get("zxyjs") or []):
+            zx_records = data.get("zxyjs") or []
+            zx = zx_records[0] if zx_records else {}
+            if not str(zx.get("zxyjAh") or layy.get("zxyjAh") or layy.get("ah") or "").strip():
                 problems.append("未填写执行依据（执行依据文书文号为空）")
-            if not str(layy.get("ssqq") or "").strip():
-                problems.append("执行请求为空")
-            if not str(layy.get("ssly") or "").strip():
-                problems.append("执行理由为空")
+            # 执行请求/理由在 zxyjs[0].zxqq / .zxyjzw，不在 layy.ssqq/ssly
+            if not str(zx.get("zxqq") or "").strip():
+                problems.append("执行请求为空（应写入 zxyjs[0].zxqq）")
+            if not str(zx.get("zxyjzw") or "").strip():
+                problems.append("执行理由为空（应写入 zxyjs[0].zxyjzw）")
+            if not str(zx.get("sqzxbdzl") or layy.get("sqzxbdzl") or "").strip():
+                problems.append("执行标的类型为空（sqzxbdzl），提交会被拒")
+            elif "1501_100279-1" in str(zx.get("sqzxbdzl") or layy.get("sqzxbdzl")) and not str(
+                    zx.get("sqzxbdje") or "").strip():
+                problems.append("执行标的类型含「金钱给付」，但执行标的金额（sqzxbdje）为空")
             dsrs = data.get("dsrs") or []
             if not any(d.get("ssdw") == roles["plaintiff"] for d in dsrs):
                 problems.append("缺少申请执行人")
@@ -1676,8 +1705,11 @@ class CourtClient:
             dsr_mc_ok = ("原告：" in mc) and ("被告：" in mc)
 
         if is_zx:
+            zx_records = data.get("zxyjs") or []
+            zxyj_ah = str((zx_records[0].get("zxyjAh") if zx_records else "") or layy.get("zxyjAh") or "")
             required = {code: name for code, name in EXEC_SLOTS.items() if code in ("11800016-2", "11800016-8")}
         else:
+            zxyj_ah = ""
             required = {"11800016-2": "起诉状", "11800016-1": "当事人身份证明",
                         "11800016-4": "证据目录及证据材料", "11800016-254": "送达地址确认书"}
         materials: List[Dict[str, Any]] = []
@@ -1721,8 +1753,8 @@ class CourtClient:
             "origin": origin,
             "case_type": case_type,
             "court": layy.get("fymc"), "fyid": layy.get("fyid"),
-            "cause": ({"zxyjAh": layy.get("zxyjAh") or layy.get("ah"),
-                       "display_ok": bool(layy.get("zxyjAh") or layy.get("ah")),
+            "cause": ({"zxyjAh": zxyj_ah,
+                       "display_ok": bool(zxyj_ah),
                        "laay": cause_name, "laayMz": cause_id}
                       if is_zx else
                       {"laay": cause_name, "laayMz": cause_id,
@@ -1734,7 +1766,12 @@ class CourtClient:
             "dsrMc": {"value": mc, "ok": dsr_mc_ok},
             "parties": status["parties"],
             "agents": status["agents"],
-            "claims": {"ssqq_len": len(layy.get("ssqq") or ""), "ssly_len": len(layy.get("ssly") or "")},
+            "claims": ({"ssqq_len": len((data.get("zxyjs") or [{}])[0].get("zxqq") or "") if data.get("zxyjs") else 0,
+                        "ssly_len": len((data.get("zxyjs") or [{}])[0].get("zxyjzw") or "") if data.get("zxyjs") else 0,
+                        "bd_zl": (data.get("zxyjs") or [{}])[0].get("sqzxbdzl") if data.get("zxyjs") else "",
+                        "bd_je": (data.get("zxyjs") or [{}])[0].get("sqzxbdje") if data.get("zxyjs") else ""}
+                       if is_zx else
+                       {"ssqq_len": len(layy.get("ssqq") or ""), "ssly_len": len(layy.get("ssly") or "")}),
             "materials": materials,
             "gates": ({"defendant_id_photo": {"value": photo_decision, "uploaded": photo_uploaded,
                                               "ok": photo_ok}} if is_zx else {
