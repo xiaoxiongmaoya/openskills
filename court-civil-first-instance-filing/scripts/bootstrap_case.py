@@ -68,6 +68,8 @@ README_TEMPLATE = """# {plaintiff} 诉 {defendant} {cause}
 
 SPEC_TEMPLATE: Dict[str, Any] = {
     "base_url": "https://zxfw.court.gov.cn",
+    "case_type": "sp",
+    "user_type": "lsyh",
     "court": {"fyid": "", "region": ""},
     "case": {"cause": "", "amount": "", "ajmc": ""},
     "plaintiff": {"name": "", "gender": "", "birth": "", "age": 0,
@@ -87,6 +89,34 @@ SPEC_TEMPLATE: Dict[str, Any] = {
     ],
 }
 
+# 强制执行申请：无案由/标的额，改为执行依据 + 原审案件；材料槽位与一审不同
+EXEC_SPEC_TEMPLATE: Dict[str, Any] = {
+    "base_url": "https://zxfw.court.gov.cn",
+    "case_type": "zx",
+    "user_type": "gryh",
+    "court": {"fyid": "", "region": ""},
+    "case": {"cause": "", "amount": "", "ajmc": ""},
+    "plaintiff": {"name": "", "gender": "", "birth": "", "age": 0,
+                  "id_card": "", "phone": "", "address": ""},
+    "defendant": {"name": "", "gender": "", "birth": "", "age": 0,
+                  "id_card": "", "phone": "", "address": ""},
+    "agent": {"enabled": False, "firm": ""},
+    "decisions": {"mediation": None, "defendant_id_photo": None},
+    "claims": {"ssqq": "", "ssly": ""},
+    "zxyj": {
+        "lb": "民商", "ah": "", "jbjg": "", "jbjgMc": "",
+        "ysfyid": "", "ysfymc": "", "ysajbh": "", "ysajAjbs": "", "ysajah": "",
+    },
+    "materials": [
+        {"slot": "执行申请书", "files": []},
+        {"slot": "执行依据文书", "files": []},
+        {"slot": "申请人身份材料", "files": []},
+        {"slot": "授权委托书及代理人身份证明", "files": []},
+        {"slot": "送达地址确认书", "files": []},
+        {"slot": "收款账户确认书", "files": []},
+    ],
+}
+
 
 def safe_name(text: str) -> str:
     return re.sub(r'[\\/:*?"<>|]', "", text or "").strip() or "未命名"
@@ -98,8 +128,11 @@ def split_names(text: str) -> List[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def build_case_dir(root: Path, fyid: str, plaintiff: str, defendant: str, cause: str, date: str) -> Path:
-    name = f"{date}-{fyid}-{safe_name(plaintiff)}诉{safe_name(defendant)}-{safe_name(cause)}"
+def build_case_dir(root: Path, fyid: str, plaintiff: str, defendant: str, cause: str, date: str,
+                   case_type: str = "sp") -> Path:
+    verb = "申请执行" if case_type == "zx" else "诉"
+    tail = f"-{safe_name(cause)}" if str(cause or "").strip() else ""
+    name = f"{date}-{fyid}-{safe_name(plaintiff)}{verb}{safe_name(defendant)}{tail}"
     return root / CASE_LIB / name
 
 
@@ -112,7 +145,9 @@ def bootstrap(args: argparse.Namespace) -> Dict[str, Any]:
         plaintiffs = [args.plaintiff]
     if not defendants:
         defendants = [args.defendant]
-    case_dir = build_case_dir(root, args.fyid, "、".join(plaintiffs), "、".join(defendants), args.cause, date)
+    case_dir = build_case_dir(root, args.fyid, "、".join(plaintiffs), "、".join(defendants),
+                              args.cause, date,
+                              case_type=str(getattr(args, "case_type", "") or "sp"))
 
     created: List[str] = []
     (root / CASE_LIB).mkdir(parents=True, exist_ok=True)
@@ -152,16 +187,18 @@ def bootstrap(args: argparse.Namespace) -> Dict[str, Any]:
         created.append("05案件信息/case.json")
 
     spec_path = state / "spec.json"
+    case_type = str(getattr(args, "case_type", "") or "sp")
+    template = EXEC_SPEC_TEMPLATE if case_type == "zx" else SPEC_TEMPLATE
     if not spec_path.exists():
-        spec = json.loads(json.dumps(SPEC_TEMPLATE))
+        spec = json.loads(json.dumps(template))
         spec["court"] = {"fyid": args.fyid, "region": args.region}
         spec["case"]["cause"] = args.cause
         spec["plaintiff"]["name"] = plaintiffs[0]
         spec["defendant"]["name"] = defendants[0]
         if len(plaintiffs) > 1:
-            spec["plaintiffs"] = [dict(SPEC_TEMPLATE["plaintiff"], name=n) for n in plaintiffs]
+            spec["plaintiffs"] = [dict(template["plaintiff"], name=n) for n in plaintiffs]
         if len(defendants) > 1:
-            spec["defendants"] = [dict(SPEC_TEMPLATE["defendant"], name=n) for n in defendants]
+            spec["defendants"] = [dict(template["defendant"], name=n) for n in defendants]
         spec_path.write_text(json.dumps(spec, ensure_ascii=False, indent=2), encoding="utf-8")
         created.append("05案件信息/spec.json")
 
@@ -189,11 +226,16 @@ def main() -> int:
     ap.add_argument("--fyid", required=True)
     ap.add_argument("--court", required=True)
     ap.add_argument("--region", default="")
-    ap.add_argument("--cause", required=True)
-    ap.add_argument("--plaintiff", required=True)
-    ap.add_argument("--defendant", required=True)
+    ap.add_argument("--cause", default="", help="案由（民事一审必填；执行案件可留空）")
+    ap.add_argument("--plaintiff", required=True, help="原告 / 申请执行人")
+    ap.add_argument("--defendant", required=True, help="被告 / 被执行人")
+    ap.add_argument("--case-type", choices=["sp", "zx"], default="sp",
+                    help="sp=民事一审（默认）/ zx=强制执行申请")
     ap.add_argument("--date", default="", help="目录日期前缀，默认今天 YYYYMMDD")
-    print(json.dumps(bootstrap(ap.parse_args()), ensure_ascii=False, indent=2))
+    args = ap.parse_args()
+    if args.case_type == "sp" and not args.cause.strip():
+        ap.error("民事一审必须给 --cause")
+    print(json.dumps(bootstrap(args), ensure_ascii=False, indent=2))
     return 0
 
 

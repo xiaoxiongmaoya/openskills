@@ -56,6 +56,46 @@ REQUEST_RETRY_BACKOFF = (2.0, 4.0, 8.0)
 DEFAULT_RATE = 1.0          # 请求/秒（账号级）；compliance.md 红线，别随手调高
 CAUSE_CACHE_TTL_SECONDS = 7 * 24 * 3600
 
+# ---- 案件类型（真实抓包：执行立案与民事一审共用 /api/v3/layy，只差三个字段） ---- #
+# sp = 民事一审；zx = 首次执行（强制执行申请）
+CASE_TYPES: Dict[str, Dict[str, Any]] = {
+    "sp": {"ajcx": "sp", "ajlb": "sp", "ajlx": "sp", "lafs": "2"},
+    "zx": {"ajcx": "zx", "ajlb": "zx", "ajlx": "1501_000001-1002", "lafs": None},
+}
+
+# 执行依据类别码表（抓自强制执行页"执行依据类别"下拉）
+ZXYJ_LB: Dict[str, str] = {
+    "民商": "1501_11400101-1",
+    "刑事": "1501_11400101-2",
+    "行政": "1501_11400101-3",
+    "行政赔偿": "1501_11400101-4",
+    "国内仲裁": "1501_11400101-5",
+    "非诉行政": "1501_11400101-6",
+    "先予执行": "1501_11400101-7",
+    "司法罚款": "1501_11400101-8",
+    "公证债权文书": "1501_11400101-9",
+    "外国港澳台法院民事裁判": "1501_11400101-10",
+    "外国港澳台仲裁裁决": "1501_11400101-11",
+    "妨碍诉讼（执行）行为制裁": "1501_11400101-12",
+    "其他": "1501_11400101-13",
+}
+
+# 诉讼地位编码：一审是 030109 族，执行是 100225 族（申请人码已实测，被申请人同族推定）
+ROLE_CODES: Dict[str, Dict[str, str]] = {
+    "sp": {"plaintiff": "1501_030109-1", "defendant": "1501_030109-2"},
+    "zx": {"plaintiff": "1501_100225-1", "defendant": "1501_100225-2"},
+}
+
+# 材料槽位：执行立案与一审完全不同（实测草稿 sscls）
+EXEC_SLOTS: Dict[str, str] = {
+    "11800016-2": "执行申请书",
+    "11800016-8": "执行依据文书",
+    "11800016-1": "申请人身份材料",
+    "11800016-9": "授权委托书及代理人身份证明",
+    "11800016-254": "送达地址确认书",
+    "11800016-36": "收款账户确认书",
+}
+
 # ---- 材料上传专用节流（法院风控最敏感的一段，宁可慢） ---------------------- #
 # 单份材料之间的最小间隔（秒）。调小 = 更容易撞 OSS 403 / "获取上传信息失败"。
 DEFAULT_UPLOAD_INTERVAL = 3.5
@@ -959,16 +999,29 @@ class CourtClient:
         return entry
 
     # ---------------- 立案草稿 ---------------- #
-    def create_filing(self, fyid: str, region_code: str = "", profile: Optional[dict] = None) -> Dict[str, Any]:
-        entry = self.get_civil_entry(region_code) if region_code else {}
+    def create_filing(self, fyid: str, region_code: str = "", profile: Optional[dict] = None,
+                      case_type: str = "sp") -> Dict[str, Any]:
+        """建立案草稿。`case_type`: sp=民事一审 / zx=强制执行申请。
+
+        实测：两类案件共用 `POST /api/v3/layy`，仅 `ajcx`/`ajlb`/`ajlx` 不同，
+        执行案件不传 `lafs`。其余字段与一审一致。
+        """
+        ct = CASE_TYPES.get(case_type) or CASE_TYPES["sp"]
         profile = profile or {}
+        ajlx = str(profile.get("ajlx") or "")
+        if not ajlx:
+            if case_type == "zx":
+                ajlx = ct["ajlx"]
+            else:
+                entry = self.get_civil_entry(region_code) if region_code else {}
+                ajlx = str(entry.get("ajlx") or "")
         payload = {
-            "ajcx": "sp",
-            "ajlx": str(entry.get("ajlx") or profile.get("ajlx") or ""),
+            "ajcx": ct["ajcx"],
+            "ajlx": ajlx,
             "tjcgsqsfqr": "1",
             "fyid": fyid,
             "sqrsf": str(profile.get("sqrsf") or "11800010-1"),
-            "ajlb": "sp",
+            "ajlb": ct["ajlb"],
             "pcSqrLx": str(profile.get("pcSqrLx") or ""),
             "sqrlx": str(profile.get("sqrlx") or "11800011-2"),
             "sfid": region_code,
@@ -976,9 +1029,58 @@ class CourtClient:
             "ftmc": "",
             "sfzscq": "1501_000010-2",
             "sfysla": "1501_000010-2",
-            "lafs": "2",
         }
+        if ct.get("lafs"):
+            payload["lafs"] = ct["lafs"]
         return self.request_json("post", f"{PREFIX_FILING}/api/v3/layy", payload)
+
+    # ---------------- 执行立案专属（真实抓包） ---------------- #
+    def save_zxyj(self, layy_id: str, fyid: str, zxyj: dict) -> Dict[str, Any]:
+        """写「执行依据」：`PATCH /api/v3/zxyj`。
+
+        `zxyj` 需含：`lb`(类别名，如"民商")、`ah`(执行依据文书文号)、
+        `jbjg`(作出单位代码，数字)、`jbjgMc`(单位名称)；`ysaj*` 可选（来自原审案号候选）。
+        """
+        lb = str(zxyj.get("lb") or "民商")
+        code = ZXYJ_LB.get(lb)
+        if not code:
+            raise CourtApiError(f"未知执行依据类别「{lb}」，可选：{'、'.join(ZXYJ_LB)}")
+        payload = {
+            "jbjg": zxyj.get("jbjg"),
+            "jbjgMc": str(zxyj.get("jbjgMc") or zxyj.get("jbjg_mc") or ""),
+            "zxyjAh": str(zxyj.get("ah") or ""),
+            "zxyjlb": code,
+            "zxyjmc": lb,
+            "layyId": layy_id,
+            "fyId": fyid,
+        }
+        return self.request_json("patch", f"{PREFIX_FILING}/api/v3/zxyj", payload)
+
+    def save_ysxx(self, layy_id: str, fyid: str, ysxx: dict) -> Dict[str, Any]:
+        """写「原审信息」：`PATCH /api/v3/layy/ysxx`。
+
+        `ysxx` 需含：`ysfyid`(原审法院代码)、`ysfymc`、`ysajbh`(原审案件 id)、
+        `ysajAjbs`(案件标识)、`ysajah`(原审案号)。通常由 `list_ysaj()` 选中项直接给出。
+        """
+        payload = {
+            "layyId": layy_id,
+            "fyId": fyid,
+            "ysfyid": ysxx.get("ysfyid"),
+            "ysajbh": str(ysxx.get("ysajbh") or ""),
+            "ysfymc": str(ysxx.get("ysfymc") or ""),
+            "ysajAjbs": str(ysxx.get("ysajAjbs") or ""),
+            "ysajah": str(ysxx.get("ysajah") or ""),
+        }
+        return self.request_json("patch", f"{PREFIX_FILING}/api/v3/layy/ysxx", payload)
+
+    def list_ysaj(self) -> List[Dict[str, Any]]:
+        """原审案号候选（已结案件）：`POST /yzw/yzw-zxfw-ajfw/api/v1/ysajlist`。
+
+        返回项关键字段：`cah` 案号、`cfydm` 法院代码、`cajbh` 案件 id、`cajbs` 案件标识。
+        """
+        payload = {"sfsx": 1, "ajlb": "1501_000001-0300;1501_000001-1300;", "sfid": "0"}
+        data = self.request_json("post", f"{PREFIX_CASE}/api/v1/ysajlist", payload)
+        return self._find_records(data)
 
     def get_template(self, fyid: str, ajlx: str) -> Dict[str, Any]:
         return self.request_json("get", f"{PREFIX_FILING}/api/v3/pz/layymb/{fyid}/{ajlx}")
@@ -1224,54 +1326,62 @@ class CourtClient:
         return "1501_000010-1" if agree else "1501_000010-2"
 
     @staticmethod
-    def build_dsr_mc(parties: List[Dict[str, Any]]) -> str:
+    def build_dsr_mc(parties: List[Dict[str, Any]], roles: Optional[Dict[str, str]] = None) -> str:
         """拼 `layy.dsrMc`（参与人展示串）。法院前台格式：`原告：A，B；被告：C`。
 
         只传当事人记录不改 dsrMc 时，列表/参与人栏缺“原告/被告”角色前缀（实测踩坑）。
+        执行案件传 `roles=ROLE_CODES["zx"]`，标签变“申请执行人/被执行人”。
         """
-        roles = {"1501_030109-1": ("原告", 0), "1501_030109-2": ("被告", 1)}
+        if roles:
+            labels = (("申请执行人", roles["plaintiff"]), ("被执行人", roles["defendant"]))
+        else:
+            labels = (("原告", "1501_030109-1"), ("被告", "1501_030109-2"))
+        code_to_label = {code: (label, idx) for idx, (label, code) in enumerate(labels)}
         buckets: Dict[int, List[str]] = {0: [], 1: []}
         for party in parties:
-            slot = roles.get(str(party.get("ssdw") or ""))
+            slot = code_to_label.get(str(party.get("ssdw") or ""))
             if not slot:
                 continue
             name = party.get("xm") or party.get("dwmc") or ""
             if name:
                 buckets[slot[1]].append(str(name))
         parts = []
-        if buckets[0]:
-            parts.append("原告：" + "，".join(buckets[0]))
-        if buckets[1]:
-            parts.append("被告：" + "，".join(buckets[1]))
+        for idx, (label, _code) in enumerate(labels):
+            if buckets[idx]:
+                parts.append(label + "：" + "，".join(buckets[idx]))
         return "；".join(parts)
 
-    def sync_dsr_mc(self, filing_id: str, ajlx: str = "") -> Dict[str, Any]:
+    def sync_dsr_mc(self, filing_id: str, ajlx: str = "", case_type: str = "sp") -> Dict[str, Any]:
         """按当前当事人重算 dsrMc / ajmc 并写回 layy。
 
         **必须 refresh**：刚 save/delete 完当事人时，缓存里的 dsrs 还是旧的
         （法院自动塞的“律师本人=原告”那条），用缓存会写出“原告：张三”。
+        执行案件（case_type="zx"）用 100225 族诉讼地位码，且不拼 ajmc（无案由）。
         """
+        roles = ROLE_CODES.get(case_type) or ROLE_CODES["sp"]
         detail = self.get_filing_detail(filing_id, refresh=True).get("data") or {}
         layy = detail.get("layy") or {}
         parties = detail.get("dsrs") or []
-        mc = self.build_dsr_mc(parties)
+        mc = self.build_dsr_mc(parties, roles=roles)
         updates: Dict[str, Any] = {"id": filing_id}
         if mc:
             updates["dsrMc"] = mc
-        plaintiff = next((p for p in parties if p.get("ssdw") == "1501_030109-1"), None)
-        defendant = next((p for p in parties if p.get("ssdw") == "1501_030109-2"), None)
+        plaintiff = next((p for p in parties if p.get("ssdw") == roles["plaintiff"]), None)
+        defendant = next((p for p in parties if p.get("ssdw") == roles["defendant"]), None)
         cause = str(layy.get("laay") or "")
-        if plaintiff and defendant and cause:
+        if plaintiff and defendant and cause and case_type == "sp":
             updates["ajmc"] = f"{plaintiff.get('xm', '')}诉{defendant.get('xm', '')}{cause}一案"
         return self.patch_layy(updates)
 
     def precheck(self, filing_id: str, decisions: Optional[Dict[str, str]] = None,
-                 *, refresh: bool = False) -> List[str]:
+                 *, refresh: bool = False, case_type: str = "sp") -> List[str]:
         """提交前硬性自查，返回问题列表（空列表 = 可提交）。
 
         `decisions` 承载两项**必须由用户拍板**的选择，缺一即中止：
           - `mediation`: yes / no（是否同意先行调解）
           - `defendant_id_photo`: upload / skip（是否上传被告身份证照片；身份信息照填，照片单独确认）
+
+        执行案件（`case_type="zx"`）不适用先行调解，改查执行依据与执行请求。
 
         其中 `laay` 必须是案由**名称**；写成数字编码会让法院前台直接显示编码串（已实测踩坑）。
         读取全部走缓存：一次运行里反复调用不会重复请求法院。
@@ -1283,6 +1393,29 @@ class CourtClient:
         layy = self._extract_layy(detail) or {}
         if not layy.get("fyid"):
             problems.append("未确认受理法院")
+
+        roles = ROLE_CODES.get(case_type) or ROLE_CODES["sp"]
+        if case_type == "zx":
+            if not str(layy.get("zxyjAh") or layy.get("ah") or "").strip() and not (data.get("zxyjs") or []):
+                problems.append("未填写执行依据（执行依据文书文号为空）")
+            if not str(layy.get("ssqq") or "").strip():
+                problems.append("执行请求为空")
+            if not str(layy.get("ssly") or "").strip():
+                problems.append("执行理由为空")
+            dsrs = data.get("dsrs") or []
+            if not any(d.get("ssdw") == roles["plaintiff"] for d in dsrs):
+                problems.append("缺少申请执行人")
+            if not any(d.get("ssdw") == roles["defendant"] for d in dsrs):
+                problems.append("缺少被执行人")
+            if dsrs and not str(layy.get("dsrMc") or "").strip():
+                problems.append("layy.dsrMc 为空，先调 sync_dsr_mc()")
+            # 执行申请书/执行依据文书：法院标"非必传"，但缺了必被退
+            for code in ("11800016-2", "11800016-8"):
+                slot = next((s for s in (data.get("sscls") or []) if s.get("cllx") == code), None)
+                if slot and not self.list_slot_files(filing_id, slot["id"], refresh=refresh):
+                    problems.append(f"材料未上传：{EXEC_SLOTS.get(code, code)}")
+            return problems
+
         laay = str(layy.get("laay") or "").strip()
         if not laay:
             problems.append("案由为空")
@@ -1293,9 +1426,9 @@ class CourtClient:
         if not str(layy.get("ssly") or "").strip():
             problems.append("事实与理由为空")
         dsrs = data.get("dsrs") or []
-        if not any(d.get("ssdw") == "1501_030109-1" for d in dsrs):
+        if not any(d.get("ssdw") == roles["plaintiff"] for d in dsrs):
             problems.append("缺少原告")
-        if not any(d.get("ssdw") == "1501_030109-2" for d in dsrs):
+        if not any(d.get("ssdw") == roles["defendant"] for d in dsrs):
             problems.append("缺少被告")
         mc = str(layy.get("dsrMc") or "")
         if dsrs and ("原告：" not in mc or "被告：" not in mc):
@@ -1346,13 +1479,14 @@ class CourtClient:
         return problems
 
     def submit(self, filing_id: str, decisions: Optional[Dict[str, str]] = None,
-               *, skip_precheck: bool = False) -> Dict[str, Any]:
+               *, skip_precheck: bool = False, case_type: str = "sp") -> Dict[str, Any]:
         """最终提交：预检（含两项用户决策）→ 拉草稿详情组装完整 layy 对象 → 经人工确认后 PATCH submit。
 
         `skip_precheck=True` 用于调用方刚刚跑过 precheck / confirm_snapshot 的场景，避免同一份数据读三遍。
+        执行案件（`case_type="zx"`）没有先行调解，不写 `lasfzsqt`。
         """
         if not skip_precheck:
-            problems = self.precheck(filing_id, decisions)
+            problems = self.precheck(filing_id, decisions, case_type=case_type)
             if problems:
                 raise CourtApiError("提交前自查未通过：" + "；".join(problems))
         detail = self.get_filing_detail(filing_id)
@@ -1361,7 +1495,7 @@ class CourtClient:
             raise CourtApiError("未能从立案详情提取 layy 对象，请检查草稿是否有效")
         layy.setdefault("id", filing_id)
         mediation = (decisions or {}).get("mediation", "").strip().lower()
-        if mediation in ("yes", "no"):
+        if case_type == "sp" and mediation in ("yes", "no"):
             # 调解意愿只能随提交对象一起落库，不能单独 PATCH
             layy["lasfzsqt"] = self.mediation_code(mediation == "yes")
         summary = json.dumps(
@@ -1516,12 +1650,15 @@ class CourtClient:
             "mediation_persisted": "unknown" if copied_from else "expected",
         }
 
-    def confirm_snapshot(self, filing_id: str, decisions: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+    def confirm_snapshot(self, filing_id: str, decisions: Optional[Dict[str, str]] = None,
+                         *, case_type: str = "sp") -> Dict[str, Any]:
         """**给用户确认用的快照：全部字段回读自法院，不用本地入参。**
 
         每条都带 ok 判定，写错的地方会直接标出来（例如案由被写成编码、dsrMc 缺角色前缀）。
         提交前的确认必须贴这个结果，不能贴本地 spec。
+        执行案件（`case_type="zx"`）改看执行依据、执行请求，材料清单换成执行槽位。
         """
+        is_zx = case_type == "zx"
         detail = self.get_filing_detail(filing_id, refresh=True)
         data = detail.get("data") or {}
         layy = self._extract_layy(detail) or {}
@@ -1533,10 +1670,16 @@ class CourtClient:
         cause_id_ok = cause_id.isdigit()
 
         mc = str(layy.get("dsrMc") or "")
-        dsr_mc_ok = ("原告：" in mc) and ("被告：" in mc)
+        if is_zx:
+            dsr_mc_ok = ("申请执行人" in mc) and ("被执行人" in mc)
+        else:
+            dsr_mc_ok = ("原告：" in mc) and ("被告：" in mc)
 
-        required = {"11800016-2": "起诉状", "11800016-1": "当事人身份证明",
-                    "11800016-4": "证据目录及证据材料", "11800016-254": "送达地址确认书"}
+        if is_zx:
+            required = {code: name for code, name in EXEC_SLOTS.items() if code in ("11800016-2", "11800016-8")}
+        else:
+            required = {"11800016-2": "起诉状", "11800016-1": "当事人身份证明",
+                        "11800016-4": "证据目录及证据材料", "11800016-254": "送达地址确认书"}
         materials: List[Dict[str, Any]] = []
         for slot in (data.get("sscls") or []):
             files = self.list_slot_files(filing_id, slot["id"], refresh=True)
@@ -1549,10 +1692,10 @@ class CourtClient:
             })
 
         all_files = [n for m in materials for n in m["files"]]
-        photo_uploaded = any("被告" in n for n in all_files)
+        photo_uploaded = any("被告" in n or "被执行" in n for n in all_files)
         photo_decision = (decisions or {}).get("defendant_id_photo") or (
             "upload" if photo_uploaded else "skip")
-        photo_ok = (photo_decision == "upload") == photo_uploaded
+        photo_ok = (photo_decision == "upload") == photo_uploaded if not is_zx else True
 
         mediation_code = str(layy.get("lasfzsqt") or "")
         mediation_text = {"1501_000010-1": "同意", "1501_000010-2": "不同意"}.get(mediation_code, "法院端未记录")
@@ -1576,11 +1719,16 @@ class CourtClient:
         snapshot = {
             "id": layy.get("id") or filing_id,
             "origin": origin,
+            "case_type": case_type,
             "court": layy.get("fymc"), "fyid": layy.get("fyid"),
-            "cause": {"laay": cause_name, "laayMz": cause_id,
-                      "display_ok": cause_display_ok, "id_ok": cause_id_ok,
-                      "fixed": None if cause_display_ok else (
-                          self.find_cause(cause_id) or self.find_cause(cause_name))},
+            "cause": ({"zxyjAh": layy.get("zxyjAh") or layy.get("ah"),
+                       "display_ok": bool(layy.get("zxyjAh") or layy.get("ah")),
+                       "laay": cause_name, "laayMz": cause_id}
+                      if is_zx else
+                      {"laay": cause_name, "laayMz": cause_id,
+                       "display_ok": cause_display_ok, "id_ok": cause_id_ok,
+                       "fixed": None if cause_display_ok else (
+                           self.find_cause(cause_id) or self.find_cause(cause_name))}),
             "amount": layy.get("sqbdje"),
             "ajmc": layy.get("ajmc"),
             "dsrMc": {"value": mc, "ok": dsr_mc_ok},
@@ -1588,15 +1736,16 @@ class CourtClient:
             "agents": status["agents"],
             "claims": {"ssqq_len": len(layy.get("ssqq") or ""), "ssly_len": len(layy.get("ssly") or "")},
             "materials": materials,
-            "gates": {
+            "gates": ({"defendant_id_photo": {"value": photo_decision, "uploaded": photo_uploaded,
+                                              "ok": photo_ok}} if is_zx else {
                 "mediation": {"value": mediation_text, "code": mediation_code,
                               "ok": bool(mediation_code) or chosen in ("yes", "no"),
                               "note": mediation_note},
                 "defendant_id_photo": {"value": photo_decision, "uploaded": photo_uploaded,
                                        "ok": photo_ok},
-            },
+            }),
             "status": status,
-            "problems": self.precheck(filing_id, effective),
+            "problems": self.precheck(filing_id, effective, case_type=case_type),
             "checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
             "_source": "court",  # 强调：全部回读自法院，不是本地 spec
         }

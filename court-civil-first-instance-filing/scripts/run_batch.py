@@ -78,6 +78,10 @@ def build_command(spec_path: Path, args: argparse.Namespace) -> List[str]:
         cmd += ["--defendant-id-photo", args.defendant_id_photo]
     if args.skip_preflight:
         cmd.append("--skip-preflight")
+    if getattr(args, "case_type", ""):
+        cmd += ["--case-type", args.case_type]
+    if getattr(args, "user_type", ""):
+        cmd += ["--user-type", args.user_type]
     if args.submit:
         cmd += ["--submit", "--yes"]
     return cmd
@@ -141,6 +145,10 @@ def main() -> int:
     ap.add_argument("--yes", action="store_true", help="配合 --submit")
     ap.add_argument("--include-submitted", action="store_true", help="已提交过的案子也重跑")
     ap.add_argument("--skip-preflight", action="store_true")
+    ap.add_argument("--case-type", choices=["", "sp", "zx"], default="",
+                    help="强制指定案件类型；留空则读每个 spec 的 case_type")
+    ap.add_argument("--user-type", choices=["", "lsyh", "gryh", "fryh"], default="",
+                    help="强制指定登录账号类型；留空则读每个 spec 的 user_type")
     ap.add_argument("--dry-run", action="store_true", help="只列出会跑的案子")
     ap.add_argument("--timeout", type=int, default=1800, help="单个案子超时秒数")
     args = ap.parse_args()

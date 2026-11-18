@@ -29,8 +29,8 @@ def paths(case_dir: str) -> dict:
     }
 
 
-def build(p: dict) -> CourtClient:
-    return CourtClient(base_url="https://zxfw.court.gov.cn",
+def build(p: dict, user_type: str = "lsyh") -> CourtClient:
+    return CourtClient(base_url="https://zxfw.court.gov.cn", user_type=user_type,
                        session_file=str(p["session"]), interactive=False, polite_delay=1.0)
 
 
@@ -39,10 +39,12 @@ def main() -> int:
     ap.add_argument("cmd", choices=["fetch", "login", "status"])
     ap.add_argument("--case-dir", required=True)
     ap.add_argument("--code", default="", help="验证码 4 位，login 时必填")
+    ap.add_argument("--user-type", default="lsyh",
+                    help="登录账号类型：lsyh=律师（默认）/ gryh=个人 / fryh=法人")
     args = ap.parse_args()
 
     p = paths(args.case_dir)
-    client = build(p)
+    client = build(p, args.user_type)
 
     if args.cmd == "fetch":
         cap = client.dump_captcha(str(p["image"]))

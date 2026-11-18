@@ -43,14 +43,18 @@ def render(snap: Dict[str, Any]) -> str:
     lines.append(f"法院　：{snap.get('court')}（fyid={snap.get('fyid')}）")
 
     cause = snap.get("cause") or {}
-    lines.append(f"案由　：laay={cause.get('laay')!r} {mark(bool(cause.get('display_ok')))}"
-                 f"    节点id={cause.get('laayMz')!r} {mark(bool(cause.get('id_ok')))}")
-    if not cause.get("display_ok"):
-        extra = cause.get("fixed") or {}
-        lines.append(f"        {FLAG} 案由显示异常：应为名称，节点 id 应为数字。"
-                     f"对照正确值：laay={extra.get('name')!r} laayMz={extra.get('id')!r}")
+    is_zx = snap.get("case_type") == "zx"
+    if is_zx:
+        lines.append(f"执行依据：{cause.get('zxyjAh')!r} {mark(bool(cause.get('display_ok')))}")
+    else:
+        lines.append(f"案由　：laay={cause.get('laay')!r} {mark(bool(cause.get('display_ok')))}"
+                     f"    节点id={cause.get('laayMz')!r} {mark(bool(cause.get('id_ok')))}")
+        if not cause.get("display_ok"):
+            extra = cause.get("fixed") or {}
+            lines.append(f"        {FLAG} 案由显示异常：应为名称，节点 id 应为数字。"
+                         f"对照正确值：laay={extra.get('name')!r} laayMz={extra.get('id')!r}")
+        lines.append(f"标的额：{snap.get('amount')}")
 
-    lines.append(f"标的额：{snap.get('amount')}")
     lines.append(f"案件名：{snap.get('ajmc') or '-'}")
     mc = snap.get("dsrMc") or {}
     lines.append(f"参与人：{mc.get('value')!r} {mark(bool(mc.get('ok')))}")
@@ -72,17 +76,23 @@ def render(snap: Dict[str, Any]) -> str:
 
     gates = snap.get("gates") or {}
     lines.append("-" * 58)
-    lines.append("两项必问答疑")
-    med = gates.get("mediation") or {}
-    lines.append(f"  {mark(bool(med.get('ok')))} 先行调解：{med.get('value')}（{med.get('code') or '空'}）")
-    if med.get("note"):
-        lines.append(f"        {FLAG} {med['note']}")
+    lines.append("提交前答疑")
+    med = gates.get("mediation")
+    if med is not None:
+        lines.append(f"  {mark(bool(med.get('ok')))} 先行调解：{med.get('value')}（{med.get('code') or '空'}）")
+        if med.get("note"):
+            lines.append(f"        {FLAG} {med['note']}")
+    elif is_zx:
+        lines.append("  - 先行调解：不适用（执行案件）")
     photo = gates.get("defendant_id_photo") or {}
     lines.append(f"  {mark(bool(photo.get('ok')))} 被告身份证照片：{photo.get('value')}"
                  f"（槽内{'有' if photo.get('uploaded') else '无'}被告证件文件）")
 
     claims = snap.get("claims") or {}
-    lines.append(f"诉请 {claims.get('ssqq_len')} 字 / 事实理由 {claims.get('ssly_len')} 字")
+    lines.append(("执行请求" if is_zx else "诉请")
+                 + f" {claims.get('ssqq_len')} 字 / "
+                 + ("执行理由" if is_zx else "事实理由")
+                 + f" {claims.get('ssly_len')} 字")
 
     problems = snap.get("problems") or []
     lines.append("=" * 58)
@@ -103,6 +113,9 @@ def main() -> int:
     ap.add_argument("--mediation", choices=["yes", "no"], default="")
     ap.add_argument("--defendant-id-photo", choices=["upload", "skip"], default="")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--case-type", choices=["sp", "zx"], default="sp",
+                    help="sp=民事一审（默认）/ zx=强制执行申请")
+    ap.add_argument("--user-type", default="lsyh", help="登录账号类型：lsyh/gryh/fryh")
     args = ap.parse_args()
 
     case_dir: Optional[Path] = Path(args.case_dir).resolve() if args.case_dir else None
@@ -120,9 +133,9 @@ def main() -> int:
         raise SystemExit("需要 --filing-id，或 --case-dir 下 case.json 里已有 filing_id")
 
     decisions = {"mediation": args.mediation, "defendant_id_photo": args.defendant_id_photo}
-    client = CourtClient(base_url="https://zxfw.court.gov.cn",
+    client = CourtClient(base_url="https://zxfw.court.gov.cn", user_type=args.user_type,
                          session_file=str(session), polite_delay=0.8)
-    snap = client.confirm_snapshot(filing_id, decisions)
+    snap = client.confirm_snapshot(filing_id, decisions, case_type=args.case_type)
     print(json.dumps(snap, ensure_ascii=False, indent=2) if args.json else render(snap))
     return 0
 

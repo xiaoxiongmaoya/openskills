@@ -13,18 +13,24 @@ description_en: "Log in to court litigation platforms and complete civil first-i
 
 category: "writing"
 
-version: "1.3.0"
+version: "1.4.0"
 
 author: "court-assistant"
 ---
 
-# 法院民事一审在线立案
+# 法院民事一审在线立案 + 强制执行申请
 
 默认平台 `https://zxfw.court.gov.cn`；同族接口（`/yzw/yzw-zxfw-*`）换 `base_url` 即可复用。
 
-**适用**：登录法院、在线立案、民事一审、提交材料、查立案状态。
+**适用**：登录法院、在线立案、民事一审、**申请强制执行**、提交材料、查立案状态。
 
 **不适用**：非 `yzw-zxfw-*` 接口族的法院平台（先抓包确认接口族）。
+
+**两类案件**：`case_type=sp` 民事一审（默认）/ `case_type=zx` 强制执行申请。执行立案与一审
+共用同一套 `layy` 接口，差异见 @references/execute-chain.md。
+
+**两种账号**：`user_type=lsyh` 律师（默认）/ `gryh` 个人 / `fryh` 法人。个人账号本人立案时
+不建代理人、不查律师证。
 
 ## 快速开始
 
@@ -82,6 +88,54 @@ python scripts/query_filing.py --case-dir "<案件目录>" --write
 
 fill 阶段逐个 `POST dsr`（原告在前、被告在后），再 `sync_dsr_mc()` 生成 `原告：A；被告：B，C`；
 `preflight_materials.py` / `write_case_note.py` 同样识别列表，说明文档会显示全部当事人。
+
+## 强制执行申请（case_type=zx）
+
+同一套 runner，加 `--case-type zx`。与一审的差异（实测，详见 @references/execute-chain.md）：
+
+| 项 | 民事一审 | 强制执行 |
+| --- | --- | --- |
+| 建单 `ajcx`/`ajlb` | `sp` | `zx` |
+| `ajlx` | `sp` | `1501_000001-1002` |
+| `lafs` | `"2"` | 不传 |
+| 案由 `laay` | 必填名称+节点 id | **没有案由树**，恒为 null |
+| 标的额 `sqbdje` | 必填 | 不适用 |
+| 执行依据 | — | `PATCH /api/v3/zxyj` |
+| 原审信息 | — | `PATCH /api/v3/layy/ysxx` |
+| 原审案号候选 | — | `POST /yzw/yzw-zxfw-ajfw/api/v1/ysajlist` |
+| 先行调解 | 必问 | **不适用** |
+| 材料槽 | 起诉状/身份/证据/送达/账户 | 执行申请书/执行依据文书/申请人身份/委托书/送达/收款账户 |
+| 诉讼地位 | 原告 `030109-1` / 被告 `-2` | 申请执行人 `100225-1` / 被执行人 `-2` |
+
+```bash
+# 建执行案件骨架（case_type=zx 时 --cause 可省）
+python scripts/bootstrap_case.py --root "<工作空间根>" --fyid 1300 \
+  --court "某某市某某区人民法院" --region 330000 \
+  --plaintiff "张三" --defendant "李四" --case-type zx
+
+# 查原审案号候选（拿 ysajbh / ysajAjbs / cfydm）
+python -c "from court_client import CourtClient as C; import json; \
+c=C(); c.ensure_login(); print(json.dumps(c.list_ysaj(), ensure_ascii=False, indent=2))"
+
+# 填 spec.zxyj（lb/ah/jbjg/jbjgMc/ysajbh/ysajAjbs/ysajah）后试跑
+python scripts/filing_runner.py "<案件目录>/05案件信息/spec.json"            # dry-run
+python scripts/filing_runner.py "<案件目录>/05案件信息/spec.json" --apply --stage create
+python scripts/filing_runner.py "<案件目录>/05案件信息/spec.json" --apply --stage fill
+
+# 回读确认 + 提交（执行案件无先行调解，可不给 --mediation）
+python scripts/confirm_filing.py --case-dir "<案件目录>" --case-type zx
+python scripts/filing_runner.py "<案件目录>/05案件信息/spec.json" --apply \
+  --stage submit --defendant-id-photo skip --submit --yes
+```
+
+个人账号登录：
+
+```bash
+python scripts/login_captcha.py fetch --case-dir "<案件目录>" --user-type gryh
+python scripts/login_captcha.py login --case-dir "<案件目录>" --code XXXX --user-type gryh
+```
+
+`spec.json` 里也可以直接写 `"case_type": "zx"` 和 `"user_type": "gryh"`，CLI 不传就按 spec 走。
 
 ## 两条硬规则
 
@@ -276,8 +330,9 @@ python scripts/query_filing.py --case-dir "<案件目录>" --write --json-only  
 | 文件                    | 内容                   | 何时读   |
 | --------------------- | -------------------- | ----- |
 | `workspace-layout.md` | 目录规范（冻结）、文件归位表、两项闸门  | 开工第一步 |
-| `submit-chain.md`     | 全链路 API、请求体、码表、材料三步  | 写代码前  |
-| `login-flow.md`       | SM2、验证码、token、非交互降级  | 登录相关  |
+| `submit-chain.md`     | 一审全链路 API、请求体、码表、材料三步  | 写代码前  |
+| `execute-chain.md`    | **强制执行链路**：建单字段差异、执行依据/原审信息接口、执行槽位、诉讼地位码 | 做执行案件前 |
+| `login-flow.md`       | SM2、验证码、token、非交互降级、账号类型  | 登录相关  |
 | `known-issues.md`     | 实测 Bug 清单（含真实字段名与证据） | 动手前必读 |
 | `compliance.md`       | 合规红线、礼貌轮询、脱敏、分发      | 对外交付前 |
 
