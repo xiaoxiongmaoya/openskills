@@ -93,7 +93,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 | `complaint_elements_loan` | `02-要素式起诉状-民间借贷.docx` | 新借贷模板.docx | 借贷案由要素式 |
 | `complaint_elements_traffic` | `02-要素式起诉状-机动车交通事故.docx` | 机动车交通事故责任纠纷起诉状.docx | 交通事故案由要素式 |
 | `complaint_elements_sale` | `02-要素式起诉状-买卖合同.doc` | 新买卖要素式.doc | 买卖案由要素式（旧格式） |
-| `delivery` | `03-送达地址确认书.docx` | 地址确认书（2025版）.docx | 送达地址确认 |
+| `delivery` | `03-送达地址确认书.docx` | 送达地址确认书.docx（最高法版） | 送达地址确认 |
 | `account` | `04-账户确认书.docx` | 诉讼费退费及收取生效判决金钱债权账户确认书.docx | 诉讼费退费/收款账户 |
 | `payee_account` | `04-收款账户确认书.doc` | 当事人银行账户确认书（新版）.doc | 执行收款账户 |
 | `evidence` | `05-证据目录.docx` | 证据目录.docx | 证据目录 |

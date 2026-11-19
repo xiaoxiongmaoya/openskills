@@ -79,15 +79,9 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     # —— 立案通用件 ——
     "delivery": {
         "file": "03-送达地址确认书.docx",
-        "src": "地址确认书（2025版）.docx",
-        "title": "诉讼文书送达地址确认书",
-        "scope": ["sp", "zx"], "kind": "core",
-    },
-    "delivery_alt": {
-        "file": "03-送达地址确认书-最高法版.docx",
         "src": "送达地址确认书.docx",
         "title": "人民法院案件送达地址确认书",
-        "scope": ["sp", "zx"], "kind": "optional",
+        "scope": ["sp", "zx"], "kind": "core",
     },
     "delivery_court_2025_doc": {
         "file": "03-送达地址确认书-法院版.doc",
