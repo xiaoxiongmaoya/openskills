@@ -48,6 +48,12 @@ PATTERNS: List[Tuple[str, re.Pattern]] = [
                         r"(?:民初|民终|民申|执|执恢|刑初|行初)\d+号")),
     ("街道门牌", re.compile(r"[\u4e00-\u9fa5]{2,8}(?:省|市|县|区)[\u4e00-\u9fa5]{2,12}"
                         r"(?:路|街|道|巷|村|屯|组)\d+号?")),
+    # 律师/客户账号：写死的密码、token、密钥（读环境变量、None 默认值不算）
+    ("硬编码密码", re.compile(r"(?i)\b(?:password|passwd|pwd)\b\s*[=:]\s*"
+                         r"[\"'][^\"'{}$<>\s]{3,}[\"']")),
+    ("硬编码密钥", re.compile(r"(?i)\b(?:token|secret|api[_-]?key|access[_-]?key)\b\s*[=:]\s*"
+                         r"[\"'][A-Za-z0-9_\-\.]{16,}[\"']")),
+    ("律师执业证号", re.compile(r"(?i)(?:执业证号|zyzh|cLszyzh)\s*[=:：]\s*[\"']?[0-9]{10,17}[\"']?")),
 ]
 
 

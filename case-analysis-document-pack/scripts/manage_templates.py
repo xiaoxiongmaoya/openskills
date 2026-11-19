@@ -44,6 +44,14 @@ SOURCE_LABEL = "本地实战模板包（律师实务，已脱敏）"
 # key -> 登记项。file 为本地规范名（落 通用件/模板/），src 为模板包内的原始文件名。
 TEMPLATES: Dict[str, Dict[str, Any]] = {
     # —— 起诉 / 答辩 ——
+    "complaint_ordinary": {
+        # 通用（普通版）诉状：由 _raw/诉状模板(1)(1).doc 转成占位符模板，
+        # 案由没有对应要素式模板时用它兜底。
+        "file": "01-民事起诉状-普通版.docx",
+        "src": "民事起诉状-普通版.docx",
+        "title": "民事起诉状（普通版·通用）",
+        "scope": ["sp"], "kind": "complaint",
+    },
     "complaint_elements_loan": {
         "file": "02-要素式起诉状-民间借贷.docx",
         "src": "新借贷模板.docx",

@@ -174,6 +174,42 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
         "律师事务所": real(summary.get("firm")),
         "出生日期": real(summary.get("birth_date")),
     })
+
+    # 普通版诉状按当事人分别占位（原告/被告各一套），性别、出生日期可从身份证号推。
+    def _id_birth(value: Any) -> str:
+        text = str(value or "").strip()
+        if len(text) == 18 and text[:17].isdigit():
+            return f"{text[6:10]}年{int(text[10:12])}月{int(text[12:14])}日"
+        return ""
+
+    def _id_gender(value: Any) -> str:
+        text = str(value or "").strip()
+        if len(text) == 18 and text[16].isdigit():
+            return "男" if int(text[16]) % 2 else "女"
+        return ""
+
+    for tag, party in (("原告", main_pl), ("被告", main_def)):
+        pid = str(party.get("id") or "")
+        gender = str(party.get("gender") or _id_gender(pid))
+        ethnic = str(party.get("ethnicity") or "")
+        birth = str(party.get("birth_date") or _id_birth(pid))
+        addr = str(party.get("address") or "")
+        phone = str(party.get("phone") or "")
+        mapping[f"{tag}性别"] = gender
+        mapping[f"{tag}民族"] = ethnic
+        mapping[f"{tag}出生日期"] = birth
+        mapping[f"{tag}地址"] = addr
+        mapping[f"{tag}身份证号"] = pid
+        mapping[f"{tag}手机号"] = phone
+        # 分段占位：缺值整段消失，不留下「，族，」这种断裂
+        mapping[f"{tag}性别段"] = f"，{gender}" if gender else ""
+        mapping[f"{tag}民族段"] = f"，{ethnic}族" if ethnic else ""
+        mapping[f"{tag}出生段"] = f"，{birth}出生" if birth else ""
+        mapping[f"{tag}地址段"] = f"，住{addr}" if addr else ""
+        mapping[f"{tag}证件段"] = f"，身份证号：{pid}" if pid else ""
+        mapping[f"{tag}电话段"] = f"，联系电话：{phone}" if phone else ""
+    mapping.setdefault("性别", mapping["原告性别"])
+    mapping.setdefault("民族", mapping["原告民族"])
     mapping["_meta"] = json.dumps({
         "plaintiff": plaintiff, "defendant": defendant, "case_type": str(confirm.get("case_type") or "sp"),
         "complaint_format": str(confirm.get("complaint_format") or ""), "has_agent": has_agent,
@@ -404,16 +440,11 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         }
 
     def complaint_key() -> str:
-        """诉状只按案由取模板：模板标题自带案由，不再用通用版/普通版兜底。"""
-        cause = str(meta.get("cause") or "")
-        picked = mt.complaint_template(cause)
-        if not picked:
-            raise SystemExit(
-                f"案由「{cause or '未识别'}」没有对应的诉状模板。"
-                f"可用模板见 manage_templates.py --list（complaint_elements_*），"
-                f"新增案由请把模板放进 assets/templates 并登记。"
-            )
-        return picked
+        """诉状取模板：指定普通版就用普通版；否则按案由挑要素式，挑不到回落普通版。"""
+        if fmt != "elements":
+            return "complaint_ordinary"
+        picked = mt.complaint_template(str(meta.get("cause") or ""))
+        return picked or "complaint_ordinary"
 
     if case_type == "zx":
         add("强制执行申请书", "enforcement", "01-强制执行申请书", "强制执行申请书", [

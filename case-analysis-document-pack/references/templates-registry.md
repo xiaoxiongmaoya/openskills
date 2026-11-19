@@ -14,6 +14,16 @@ case-analysis-document-pack/assets/templates/
 `_raw/` 里的 12 个 `.doc` 是旧二进制格式，无法无损脱敏，因此**不入库**；
 本机运行时仍可用（status=`local_practice_raw_doc`），开源分发后自然缺失。
 
+## 普通版诉状从哪来
+
+`assets/templates/民事起诉状-普通版.docx` 不是脱敏产物，是`scripts/build_complaint_ordinary.py` 从 `_raw/诉状模板(1)(1).doc` 生成的：
+
+- 原文件是空白表单（姓名、证件、金额本来就空），实为 docx 改后缀，可直接改 XML；
+- 逐段替换文字、保留原段落样式（仿宋、行距、首行缩进），题名居中，具状人与日期右对齐；
+- 当事人信息做成按人分段占位（`{{原告性别段}}` 这类），缺值整段消失，不会留「，族，」断句。
+
+改模板：改 `build_complaint_ordinary.py` 里的 `LAYOUT` 后重跑，不要手改 docx。
+
 ## 脱敏规则（占位符化，不是打码）
 
 原包是已办结案件的真实文书。`scripts/pack_templates.py` 把每一个敏感值替换成
@@ -89,6 +99,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 
 | key | 本地规范名 | 原包文件 | 用途 |
 | --- | --- | --- | --- |
+| `complaint_ordinary` | `01-民事起诉状-普通版.docx` | 诉状模板(1)(1).doc（docx 改后缀） | 通用（普通版）诉状，要素式无对应案由时兜底 |
 | `complaint_elements_loan` | `02-要素式起诉状-民间借贷.docx` | 新借贷模板.docx | 借贷案由要素式（标题自带案由） |
 | `complaint_elements_traffic` | `02-要素式起诉状-机动车交通事故.docx` | 机动车交通事故责任纠纷起诉状.docx | 交通事故案由要素式 |
 | `complaint_elements_sale` | `02-要素式起诉状-买卖合同.doc` | 新买卖要素式.doc | 买卖案由要素式（旧格式） |
@@ -106,7 +117,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 
 ```text
 <工作空间根>/通用件/模板/
-  01-民事起诉状-普通版.doc
+  01-民事起诉状-普通版.docx
   02-要素式起诉状-民间借贷.docx
   ...
   来源登记.json

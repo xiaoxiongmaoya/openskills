@@ -154,7 +154,10 @@ def fill_placeholders(path: Path, mapping: Dict[str, str], blank_missing: bool =
                     if not blank_missing:
                         continue
                     value = ""
-                xml = xml.replace("{{" + key + "}}", _esc(str(value)))
+                # 多行值转成 Word 换行（</w:t><w:br/><w:t>），否则 \n 在 w:t 里不会换行
+                value = _esc(str(value)).replace(
+                    "\n", '</w:t><w:br/><w:t xml:space="preserve">')
+                xml = xml.replace("{{" + key + "}}", value)
             data = xml.encode("utf-8")
         new_entries.append((info, data))
     _write_entries(path, new_entries)
