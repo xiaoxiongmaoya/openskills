@@ -8,15 +8,16 @@
 ```text
 case-analysis-document-pack/assets/templates/
   <32 个 .docx>     已脱敏，随仓库分发（status=local_practice）
-  _raw/             原始模板包（41 个，含真实当事人信息，已 gitignore，仅本机可用）
+（原始模板包已移出仓库，见下方「原始包位置」）
 ```
 
-`_raw/` 里的 12 个 `.doc` 是旧二进制格式，无法无损脱敏，因此**不入库**；
-本机运行时仍可用（status=`local_practice_raw_doc`），开源分发后自然缺失。
+原始包（含真实当事人信息）**不在仓库内**，位置：`D:/Project/templates_raw/`（仓库同级）。
+里面的 12 个 `.doc` 是旧二进制格式，无法无损脱敏，因此只在本机可用
+（status=`local_practice_raw_doc`），开源分发后自然缺失，不影响 docx 模板。
 
 ## 普通版诉状从哪来
 
-`assets/templates/民事起诉状-普通版.docx` 不是脱敏产物，是`scripts/build_complaint_ordinary.py` 从 `_raw/诉状模板(1)(1).doc` 生成的：
+`assets/templates/01-起诉与答辩/民事起诉状（普通版）.docx` 不是脱敏产物，是 `scripts/build_complaint_ordinary.py` 从原始包 `诉状模板(1)(1).doc` 生成的：
 
 - 原文件是空白表单（姓名、证件、金额本来就空），实为 docx 改后缀，可直接改 XML；
 - 逐段替换文字、保留原段落样式（仿宋、行距、首行缩进），题名居中，具状人与日期右对齐；
@@ -71,7 +72,7 @@ case-analysis-document-pack/assets/templates/
 「申请人/原告/申请执行人/委托人」→ `{{原告}}`；「指派人员/承办人」→ `{{承办律师}}`；
 无关键词 → `{{当事人}}`。
 
-姓名名单由 `load_known_names()` 从 `_raw` 原件抽（「姓名，男/女，X族」「关键词：姓名」
+姓名名单由 `load_known_names()` 从原始包抽（「姓名，男/女，X族」「关键词：姓名」
 「与被告X」「指派人员：X」等模式），`sanitize` 输出会打印 `known_names`。
 **换模板包后要过一眼这份名单**，漏的人名会原样留在正文里。
 
@@ -82,12 +83,12 @@ case-analysis-document-pack/assets/templates/
 | 正文里的个案事实（金额、具体日期、判决细节） | 属于叙事文本，正则无法可靠切分；需要时由 Agent 改写，不自动占位 |
 | 性别 / 民族 | 表单固定词，不含身份信息 |
 | 法庭、仲裁委等细粒度机关名 | 只处理「X县/市/区人民法院」 |
-| 12 个 `.doc` 原件 | 旧二进制格式无法安全写回，只在 `_raw`（gitignore） |
+| 12 个 `.doc` 原件 | 旧二进制格式无法安全写回，只在仓库外 `templates_raw/` |
 
 复现与自查：
 
 ```bash
-python scripts/pack_templates.py sanitize --raw assets/templates/_raw --out assets/templates
+python scripts/pack_templates.py sanitize --raw ../templates_raw --out assets/templates
 python scripts/pack_templates.py scan --dir assets/templates      # 应输出 dirty = {}
 ```
 
@@ -99,7 +100,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 
 - 不带序号前缀（分类已承担排序）、不带 `1、`/`(1)`/`- 副本`/`模板` 这类噪音；
 - 括号统一全角 `（）`，限定词只写案由、主体或格式差异；
-- `.doc` 旧格式只在 `_raw`，文件名同样按此规范登记。
+- `.doc` 旧格式只在仓库外原始包 `templates_raw/`，文件名沿用原包名。
 
 ## 登记表（key → 规范名 → 原包文件名）
 
@@ -217,5 +218,5 @@ python scripts/manage_templates.py --root "<根>" --unlock
 ## 禁止
 
 - 禁止联网下载模板、禁止生成「骨架模板」冒充正式文书。
-- 禁止把 `_raw/` 提交进仓库。
+- 禁止把原始包（含真实当事人信息）提交进仓库；它现在放在仓库同级 `templates_raw/`。
 - 禁止在模板里写死某个律所/律师信息当作通用内容。

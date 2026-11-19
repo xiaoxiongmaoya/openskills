@@ -11,9 +11,9 @@
 设计变更（2026-11-19）：
 - 删除“官网下载 + 生成骨架”那一套。模板只认 `assets/templates/`（律师实战模板包，
   已脱敏，随技能分发），缺文件直接报错，不再伪造任何模板。
-- `assets/templates/_raw/` 保留原始模板包（含真实当事人信息，已 gitignore），
-  仅在本机可用；仓库分发的只有脱敏版。
-- 12 个 .doc 旧二进制格式无法无损脱敏，只在本机 `_raw` 命中时可用，
+- 原始模板包（含真实当事人信息）已移出仓库，放在 `<仓库根>/../templates_raw/`，
+  仅本机可用；仓库分发的只有脱敏版 `assets/templates/`。
+- 12 个 .doc 旧二进制格式无法无损脱敏，只在本机原始包里命中时可用，
   登记状态标 `local_practice_raw_doc`，渲染时只复制原件、不注入内容。
 
 用法：
@@ -37,7 +37,8 @@ from typing import Any, Dict, List, Optional
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
 ASSETS = SKILL_DIR / "assets" / "templates"
-RAW_ASSETS = ASSETS / "_raw"
+# 原始模板包（含真实当事人信息）不入库，放在仓库同级目录，只有本机才有
+RAW_ASSETS = SKILL_DIR.parents[1] / "templates_raw"
 
 SOURCE_LABEL = "本地实战模板包（律师实务，已脱敏）"
 
