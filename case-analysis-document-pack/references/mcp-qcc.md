@@ -2,11 +2,11 @@
 
 ## 前置条件
 
-- 连接器：企查查法律数据（`qcc-legal`）。2026-11-19 实测已连接可用。
+- 连接器：企查查法律数据（`qcc-legal`）。实测已连接可用。
 - **WorkBuddy 连接器里的“企查查”默认只连 `qcc-company`，不含法律数据。** 若只连了市场版且没有法律工具，需在 [agent.qcc.com](https://agent.qcc.com) 获取 API Key 自定义配置。
 - 费用：注册赠 500 积分（30 天），每日赠 100 积分（普通用户），1 元 = 10 积分；不同工具单价不同。
 
-## 真实工具名（2026-11 实测）
+## 真实工具名（实测）
 
 真实 server 前缀就是 `mcp__qcc-legal__`，不是 `qcc-legal-regulation` / `qcc-legal-case`：
 

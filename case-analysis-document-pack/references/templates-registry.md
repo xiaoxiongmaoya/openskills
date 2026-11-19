@@ -1,6 +1,6 @@
 # 模板来源与登记（本地实战模板包）
 
-**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，44 个文书，2026-11-19 入库）。
+**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，44 个文书，已入库）。
 **没有下载、没有骨架生成、没有联网**。缺模板直接报错，禁止伪造替代文件。
 
 ## 目录
@@ -135,7 +135,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
     "status": "local_practice",
     "sha256": "...",
     "bytes": 22293,
-    "copied_at": "2026-11-19T17:07:38",
+    "copied_at": "<ISO8601>",
     "pii_masked": true
   }
 }
