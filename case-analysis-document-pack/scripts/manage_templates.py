@@ -263,12 +263,6 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "title": "立案情况说明",
         "scope": ["sp", "zx"], "kind": "optional",
     },
-    "statement_filing_other": {
-        "file": "08-情况说明/立案情况说明（补充材料）.docx",
-        "src": "其他材料-立案情况说明.docx",
-        "title": "立案情况说明（补充材料用）",
-        "scope": ["sp", "zx"], "kind": "optional",
-    },
     "statement_cash": {
         "file": "08-情况说明/现金交付情况说明.docx",
         "src": "现金情况说明.docx",

@@ -1,6 +1,6 @@
 # 模板来源与登记（本地实战模板包）
 
-**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，44 条登记：33 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。
+**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，43 条登记：32 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。
 **没有下载、没有骨架生成、没有联网**。缺模板直接报错，禁止伪造替代文件。
 
 ## 目录
@@ -8,7 +8,7 @@
 ```text
 case-analysis-document-pack/assets/templates/
   <32 个 .docx>     已脱敏，随仓库分发（status=local_practice）
-  _raw/             原始模板包（42 个，含真实当事人信息，已 gitignore，仅本机可用）
+  _raw/             原始模板包（41 个，含真实当事人信息，已 gitignore，仅本机可用）
 ```
 
 `_raw/` 里的 12 个 `.doc` 是旧二进制格式，无法无损脱敏，因此**不入库**；
@@ -143,7 +143,6 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 | 08-情况说明 | `statement_general` | `情况说明.docx` | 情况说明模版.docx | 情况说明 |
 | 08-情况说明 | `statement_cash` | `现金交付情况说明.docx` | 现金情况说明.docx | 现金交付情况说明 |
 | 08-情况说明 | `statement_filing` | `立案情况说明.docx` | 立案情况说明.docx | 立案情况说明 |
-| 08-情况说明 | `statement_filing_other` | `立案情况说明（补充材料）.docx` | 其他材料-立案情况说明.docx | 立案情况说明（补充材料用） |
 | 09-仲裁 | `arbitration` | `仲裁申请书.docx` | 1、仲裁申请书.docx | 仲裁申请书 |
 | 09-仲裁 | `arbitration_doc` | `仲裁申请书（旧版）.doc` | 仲裁模板.doc | 仲裁申请书（旧版） |
 | 09-仲裁 | `arbitration_delivery` | `当事人送达信息确认书.docx` | 6、当事人送达信息确认书.docx | 当事人送达信息确认书（仲裁立案） |
@@ -152,7 +151,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 | 10-专项（劳务） | `debt_transfer` | `债权转移确认书（劳务合同纠纷）.docx` | 债权转移确认书（劳务合同纠纷专用）.docx | 债权转移确认书（劳务合同纠纷） |
 | 10-专项（劳务） | `labor_entrust` | `劳务欠款纠纷诉讼委托书.docx` | 劳务欠款纠纷诉讼委托书.docx | 劳务欠款纠纷诉讼委托书 |
 
-全部 44 条均在登记表内，`--list` 即全量。
+全部 43 条均在登记表内，`--list` 即全量。
 
 ## 落点与登记
 
