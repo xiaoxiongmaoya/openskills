@@ -92,6 +92,8 @@ def _scannable(paths: Iterable[Path]) -> List[Path]:
     for p in paths:
         if not p.is_file():
             continue
+        if p.name == "check_sensitive.py":  # 扫描器自身的规则文案不算泄露
+            continue
         suffix = p.suffix.lower()
         if suffix in TEXT_SUFFIX or suffix in DOCX_SUFFIX:
             out.append(p)
@@ -184,7 +186,7 @@ def main() -> int:
         for h in hits:
             print(f"  {h['file']}:{h['line']}  [{h['type']}] {h['value']}", file=sys.stderr)
         print("改法：姓名→张三/李四，身份证→110101199001010000，"
-              "手机→13800000000，银行卡→123456789012345678，案号→（2024）示例民初1号",
+              "手机→13800000000，银行卡→123456789012345678，案号→（年份）法院代字民初序号号",
               file=sys.stderr)
     else:
         print(f"红线检查通过：{len(targets)} 个文件，{len(names)} 个当事人姓名已排除",
