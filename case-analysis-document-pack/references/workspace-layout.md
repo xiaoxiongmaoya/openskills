@@ -26,11 +26,11 @@
     analysis_confirm.json
     document_manifest.json
     mcp_status.json
-    yuandian_law_raw.json
-    yuandian_case_raw.json
-    agent_findings.json   # Agent 结构化分析结论（可选输入）
+    search_plan.json       # auto_search.py plan 产的检索词与依据
+    mcp_calls/             # auto_search.py plan 产的 4 份 MCP 调用参数
+    mcp_raw/               # Agent 执行 MCP 后的原始返回（ingest-all 的输入）
   06运行记录/
-    OCR 日志、工具反查结果 resolved_tools.json、MCP 调用参数 call_*.json
+    OCR 日志、工具反查结果 resolved_tools.json、agent_findings.json（Agent 结构化结论）
 ```
 
 ## 通用模板库

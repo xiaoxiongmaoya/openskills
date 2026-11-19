@@ -31,3 +31,6 @@ captcha.png
 
 # 实战模板原始包（含真实当事人姓名/证件号，禁止入库）
 case-analysis-document-pack/assets/templates/_raw/
+
+# Office 临时锁文件
+~$*

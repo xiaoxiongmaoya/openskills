@@ -78,8 +78,9 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     },
     # —— 立案通用件 ——
     "delivery": {
+        # 通用占位符版：字段填进表格对应单元格，不再往文末追加“填写内容”
         "file": "03-送达地址确认书.docx",
-        "src": "送达地址确认书.docx",
+        "src": "送达地址确认书-通用版.docx",
         "title": "人民法院案件送达地址确认书",
         "scope": ["sp", "zx"], "kind": "core",
     },
@@ -95,10 +96,17 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "title": "诉讼费退费及收取金钱债权账户确认书",
         "scope": ["sp", "zx"], "kind": "core",
     },
+    "bank_account": {
+        # 一审账户确认书：当事人银行账户确认书（通用占位符版，保留表格原文与签字栏）
+        "file": "04-当事人银行账户确认书.docx",
+        "src": "当事人银行账户确认书-通用版.docx",
+        "title": "当事人银行账户确认书",
+        "scope": ["sp", "zx"], "kind": "core",
+    },
     "payee_account": {
         "file": "04-收款账户确认书.doc",
         "src": "当事人银行账户确认书（新版）.doc",
-        "title": "当事人银行账户确认书",
+        "title": "当事人银行账户确认书（旧版 .doc，仅人工填写）",
         "scope": ["zx"], "kind": "core",
     },
     "evidence": {

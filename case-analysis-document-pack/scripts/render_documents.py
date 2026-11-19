@@ -30,6 +30,7 @@ sys.path.insert(0, str(HERE))
 import confirm_gate  # noqa: E402
 import doc_slots  # noqa: E402
 import manage_templates as mt  # noqa: E402
+import party_info as pi  # noqa: E402
 from docx_helper import append_to_docx, fill_placeholders, find_placeholders, write_docx  # noqa: E402
 
 SIGN_LINE = "（签字/捺印）：____________    日期：____年__月__日"
@@ -93,15 +94,29 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
     firm = str(summary.get("firm") or agent.get("firm") or "")
     has_agent = bool(summary.get("has_agent") or ((agent.get("enabled") or agent_name or firm) and (agent_name or firm)))
 
-    # 从真实诉状字段里提取身份证号/电话（case_summary 里常是“已提供”这类说明文字）
+    # 当事人真实信息：优先 party_info.json（由材料/OCR 提取并留痕），支持多当事人。
+    # case_summary 里常是“已提供”这类说明文字，不能当真值用。
     import re as _re
+    pinfo = pi.load(case_dir)
+    main_pl = pinfo.get("primary_plaintiff") or {}
+    main_def = pinfo.get("primary_defendant") or {}
     complaint_path = case_dir / "06运行记录" / "complaint_text.json"
     complaint_data = _load(complaint_path) if complaint_path.exists() else {}
     identity = str(complaint_data.get("原告身份信息") or "") if isinstance(complaint_data, dict) else ""
     id_match = _re.search(r"身份证号[:：]\s*([0-9]{17}[\dXx])", identity) or _re.search(r"([0-9]{17}[\dXx])", identity)
-    real_id = id_match.group(1) if id_match else ""
     phone_match = _re.search(r"联系电话[:：]\s*(1[3-9]\d{9})", identity) or _re.search(r"(?<!\d)(1[3-9]\d{9})(?!\d)", str(summary.get("plaintiff_phone") or ""))
-    real_phone = phone_match.group(1) if phone_match else ""
+    real_id = str(main_pl.get("id") or (id_match.group(1) if id_match else ""))
+    real_phone = str(main_pl.get("phone") or (phone_match.group(1) if phone_match else ""))
+    delivery_address = str(main_pl.get("address") or "")
+    account_name = str(main_pl.get("account_name") or "")
+    bank_name = str(main_pl.get("bank") or "")
+    bank_account = str(main_pl.get("account") or "")
+    # 多当事人：模板姓名栏用顿号连接
+    if pinfo.get("multi"):
+        if pinfo.get("plaintiffs"):
+            plaintiff = pi.join_names(pinfo["plaintiffs"])
+        if pinfo.get("defendants"):
+            defendant = pi.join_names(pinfo["defendants"])
 
     def real(value: Any, fallback: str = "") -> str:
         """说明性文字（如“已提供”“待补…”）视为无真实值。"""
@@ -137,12 +152,12 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
         "要素事实": facts_text,
         "证据清单": evidence_text,
         "当事人": plaintiff,
-        "证件号码": real(summary.get("plaintiff_id"), real_id),
-        "送达地址": real(summary.get("delivery_address") or summary.get("plaintiff_address")),
-        "联系方式": real(summary.get("phone") or summary.get("plaintiff_phone"), real_phone),
-        "户名": real(summary.get("account_name"), plaintiff),
-        "开户行": real(summary.get("bank_name")),
-        "账号": real(summary.get("bank_account")),
+        "证件号码": real_id or real(summary.get("plaintiff_id")),
+        "送达地址": delivery_address or real(summary.get("delivery_address") or summary.get("plaintiff_address")),
+        "联系方式": real_phone or real(summary.get("phone") or summary.get("plaintiff_phone")),
+        "户名": account_name or real(summary.get("account_name"), plaintiff),
+        "开户行": bank_name or real(summary.get("bank_name")),
+        "账号": bank_account or real(summary.get("bank_account")),
         "委托事项": str(summary.get("agency_scope") or "代为提起诉讼、提交材料、参加诉讼活动。"),
         "代理权限": str(summary.get("agency_authority") or "一般授权（待律师确认）。"),
     }
@@ -202,8 +217,21 @@ def _emit(template: Path, target_stem: Path, title: str, paras: List[str],
 
 
 def render(case_dir: Path, case_type: str, only_complaint: bool = False,
-           only: set[str] | None = None) -> Dict[str, Any]:
+           only: set[str] | None = None, skip_image_check: bool = False) -> Dict[str, Any]:
     case_dir = case_dir.resolve()
+    # 图片体检放最前：先确保材料看全了，再谈确认和生成
+    if not skip_image_check:
+        try:
+            import label_images
+            img = label_images.collect(case_dir)
+            if not img["ok"]:
+                raise SystemExit(
+                    f"图片材料未标注用途（{img['missing_count']}/{img['image_count']} 张）："
+                    + "、".join(img["missing"][:6])
+                    + "。必须先逐张看图并写入 05案件信息/image_labels.json，再生成文书。"
+                )
+        except ImportError:
+            pass
     gate = confirm_gate.check(case_dir)
     if not gate["ok"]:
         raise SystemExit("确认门禁未通过：" + "；".join(gate["problems"]))
@@ -315,7 +343,8 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             clean[k] = text
         return clean
 
-    def add_filled(name: str, key: str, out_stem: str, title: str) -> None:
+    def add_filled(name: str, key: str, out_stem: str, title: str,
+                   mapping: Dict[str, str] | None = None) -> None:
         """按模板占位符直接填值：保留模板全部原文与版式，不追加重复段落。"""
         if only is not None and key not in only:
             return
@@ -325,7 +354,7 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         target = drafts / (out_stem + ".docx")
         if template.suffix.lower() == ".docx" and zipfile.is_zipfile(template):
             shutil.copyfile(template, target)
-            fill_placeholders(target, complaint_mapping(), blank_missing=True)
+            fill_placeholders(target, mapping if mapping is not None else complaint_mapping(), blank_missing=True)
             mode = "docx_placeholder_filled"
         else:
             shutil.copyfile(template, target.with_suffix(".doc"))
@@ -343,6 +372,36 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             "sign_positions": [SIGN_LINE],
             "status": "generated",
         })
+
+    def bank_account_mapping() -> Dict[str, str]:
+        """当事人银行账户确认书占位符：全从 party_info 真实值取，无值留空。"""
+        pl = (pi.load(case_dir).get("primary_plaintiff") or {})
+        return {
+            "案号": str((pi.load(case_dir).get("来源") or {}).get("案号") or ""),
+            "户名": str(pl.get("account_name") or fields.get("户名") or ""),
+            "收款账号": str(pl.get("account") or ""),
+            "开户银行": str(pl.get("bank") or ""),
+            "联行号": str(pl.get("raw", {}).get("联行号") or "") if isinstance(pl.get("raw"), dict) else "",
+            "联系手机号码": str(pl.get("phone") or fields.get("联系方式") or ""),
+            "邮编": str(pl.get("raw", {}).get("邮编") or "") if isinstance(pl.get("raw"), dict) else "",
+        }
+
+    def delivery_mapping() -> Dict[str, str]:
+        """送达地址确认书占位符：填进表格单元格；地址/电话/账户从 party_info 取，无值留空。"""
+        pl = (pi.load(case_dir).get("primary_plaintiff") or {})
+        phone = str(pl.get("phone") or fields.get("联系方式") or "")
+        return {
+            "当事人": str(pl.get("name") or fields.get("当事人") or ""),
+            "送达地址": str(pl.get("address") or ""),
+            "联系电话": phone,
+            "邮编": str(pl.get("raw", {}).get("邮编") or "") if isinstance(pl.get("raw"), dict) else "",
+            "电子邮箱": str(pl.get("raw", {}).get("电子邮箱") or "") if isinstance(pl.get("raw"), dict) else "",
+            "收款账号": str(pl.get("account") or ""),
+            "开户银行": str(pl.get("bank") or ""),
+            "户名": str(pl.get("account_name") or fields.get("户名") or ""),
+            # 模板原文自带的句子占位：保证所提供的送达地址【真实有效】
+            "地址": "真实有效",
+        }
 
     def complaint_key() -> str:
         if fmt == "elements":
@@ -381,17 +440,22 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
                 f"此致 {m['受理法院']}", SIGN_LINE,
             ])
         if not only_complaint:
-            add("账户确认书", "account", "06-账户确认书", "诉讼费退费及收取金钱债权账户确认书", [
-                f"户名：{fields['户名']}", f"开户行：{fields['开户行']}    账号：{fields['账号']}", SIGN_LINE,
-            ])
+            # 一审用“当事人银行账户确认书”（表格版），不用退费确认书
+            add_filled("账户确认书", "bank_account", "06-账户确认书", "当事人银行账户确认书",
+                       bank_account_mapping())
 
     if not only_complaint:
-        add("送达地址确认书", "delivery", "05-送达地址确认书", "送达地址确认书", [
-            f"受送达人：{fields['当事人']}    证件号码：{fields['证件号码']}",
-            f"送达地址：{fields['送达地址']}",
-            "是否接受电子送达：□是 □否    电子邮箱/手机号：" + fields["联系方式"],
-            SIGN_LINE,
-        ])
+        dpl = Path(mt.ensure_template(root, "delivery", registry)["file"])
+        if find_placeholders(dpl):
+            add_filled("送达地址确认书", "delivery", "05-送达地址确认书", "送达地址确认书",
+                       delivery_mapping())
+        else:
+            add("送达地址确认书", "delivery", "05-送达地址确认书", "送达地址确认书", [
+                f"受送达人：{fields['当事人']}    证件号码：{fields['证件号码']}",
+                f"送达地址：{fields['送达地址']}",
+                "是否接受电子送达：□是 □否    电子邮箱/手机号：" + fields["联系方式"],
+                SIGN_LINE,
+            ])
         add("证据目录", "evidence", "04-证据目录", "证据目录", [
             f"提交人：{fields['原告']}", f"## 证据清单\n{fields['证据清单']}", SIGN_LINE,
         ])
@@ -427,6 +491,10 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             lines.append(f"- `{doc['file']}` → 应填内容见 `{doc['fill_guide']}`")
     lines += ["", "## 需客户/律师补充 or 签字盖章"]
     lines += [f"- {item}" for item in client_items]
+    # 材料提取件里标记为待核对的（如手写卡号易误读），强制提示与原件核对
+    verify = pi.load(case_dir).get("待核对") or []
+    for item in verify:
+        lines.append(f"- 【务必核对原件】{item}")
     extra = doc_slots.extra_copy_for("账户确认书")
     if extra:
         lines.append(f"- 账户确认书需双投到「{extra}」槽位，由后续立案 Skill 处理；本 Skill 不上传。")
@@ -464,6 +532,8 @@ def main() -> int:
     ap.add_argument("--case-type", choices=["sp", "zx"], default="")
     ap.add_argument("--only-complaint", action="store_true", help="只生成诉状，不出整套材料")
     ap.add_argument("--only", default="", help="只生成指定模板 key，逗号分隔，如 delivery,account")
+    ap.add_argument("--skip-image-check", action="store_true",
+                    help="跳过图片标注体检（仅排障用；正常流程禁止跳过）")
     args = ap.parse_args()
 
     case_dir = Path(args.case_dir).resolve()
@@ -471,7 +541,8 @@ def main() -> int:
         raise SystemExit(f"案件目录不存在：{case_dir}")
     case_type = args.case_type or str(_load(case_dir / "05案件信息" / "analysis_confirm.json").get("case_type") or "sp")
     only = {k.strip() for k in args.only.split(",") if k.strip()} if args.only else None
-    result = render(case_dir, case_type, only_complaint=args.only_complaint, only=only)
+    result = render(case_dir, case_type, only_complaint=args.only_complaint, only=only,
+                    skip_image_check=args.skip_image_check)
     if args.only_complaint:
         result["documents"] = [d for d in result["documents"] if "起诉状" in d or "申请书" in d]
     print(json.dumps(result, ensure_ascii=False, indent=2))

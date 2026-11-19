@@ -163,6 +163,25 @@ class PipelineTest(unittest.TestCase):
             "questions": ["确认聊天双方身份", "确认是否已交付"],
         }
         self._write(self.case_dir / "06运行记录" / "agent_findings.json", findings)
+
+        # 6.1 一键检索：自动出词 + 批量入库 + 回写报告
+        self.run_cmd([PY, NEW / "scripts/auto_search.py", "plan", "--case-dir", self.case_dir])
+        plan = json.loads((self.case_dir / "05案件信息/search_plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(plan["cause"], "买卖合同纠纷")
+        self.assertTrue((self.case_dir / "05案件信息/mcp_calls/qcc_case.json").exists())
+        # 当事人姓名不得进入外发查询词
+        for query in plan["queries"].values():
+            self.assertNotIn("甲公司", query)
+            self.assertNotIn("乙公司", query)
+        self.assertIn("买卖合同纠纷", plan["queries"]["law"])
+
+        self.run_cmd([PY, NEW / "scripts/auto_search.py", "ingest-all",
+                      "--case-dir", self.case_dir, "--refresh",
+                      "--raw-dir", self.case_dir / "06运行记录"])
+        state = json.loads((self.case_dir / "05案件信息/analysis.json").read_text(encoding="utf-8"))
+        self.assertTrue(state["case_search"]["results"])
+        self.assertTrue(state["law_search"]["results"])
+
         self.run_cmd([PY, NEW / "scripts/analyze_case.py", "--case-dir", self.case_dir,
                   "--findings", self.case_dir / "06运行记录/agent_findings.json"])
         report = (self.case_dir / "案件分析报告.md").read_text(encoding="utf-8")

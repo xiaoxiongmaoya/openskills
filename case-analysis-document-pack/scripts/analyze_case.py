@@ -92,6 +92,113 @@ def _md_table(headers: List[str], rows: List[List[Any]]) -> List[str]:
     return lines
 
 
+def _date_key(date_str: str) -> tuple:
+    """把“2026年”“2026-11-18 至 2026-11-19”解析成可排序元组。
+
+    粒度补 0：只有年份的排在该年最前，只有月份的排在月内最前，
+    保证粗略时间点在它所属时段之前，不会把“调查日”排到“事实发生”前面。
+    """
+    import re
+    m = re.search(r"(\d{4})(?:[-/年](\d{1,2}))?(?:[-/月](\d{1,2}))?", str(date_str or ""))
+    if not m:
+        return (9999, 99, 99)
+    return (int(m.group(1)), int(m.group(2) or 0), int(m.group(3) or 0))
+
+
+def _date_granularity(date_str: str) -> str:
+    import re
+    m = re.search(r"(\d{4})(?:[-/年](\d{1,2}))?(?:[-/月](\d{1,2}))?", str(date_str or ""))
+    if not m:
+        return "未知"
+    if m.group(3):
+        return "日"
+    if m.group(2):
+        return "月"
+    return "年"
+
+
+# 分析框架按案件领域切换；民事用法律关系五步骤，刑事用犯罪构成四要件，行政用合法性审查五要素。
+DOMAIN_FRAMEWORKS: Dict[str, Dict[str, Any]] = {
+    "civil": {
+        "label": "民事法律关系",
+        "steps": [
+            ("1. 明确争议点及与其相关的法律关系", "step1"),
+            ("2. 确定是否产生了法律关系", "step2"),
+            ("3. 分析法律关系的性质", "step3"),
+            ("4. 分析法律关系的各要素", "step4"),
+            ("5. 考察法律关系的变动", "step5"),
+        ],
+        "focus_headers": ["焦点", "原告观点", "被告观点", "分析", "依据"],
+    },
+    "criminal": {
+        "label": "犯罪构成",
+        "steps": [
+            ("1. 主体要件（是否达到刑事责任年龄、有无责任能力）", "step1"),
+            ("2. 主观要件（故意或过失、目的动机）", "step2"),
+            ("3. 客体要件（侵害的法益）", "step3"),
+            ("4. 客观要件（危害行为、结果、因果关系）", "step4"),
+            ("5. 违法阻却与责任阻却事由", "step5"),
+        ],
+        "focus_headers": ["焦点", "控方观点", "辩方观点", "分析", "依据"],
+    },
+    "administrative": {
+        "label": "行政行为合法性",
+        "steps": [
+            ("1. 职权依据（是否超越职权、滥用职权）", "step1"),
+            ("2. 事实认定（主要证据是否充分）", "step2"),
+            ("3. 法律适用（适用法律法规是否正确）", "step3"),
+            ("4. 法定程序（是否遵守法定程序）", "step4"),
+            ("5. 裁量适当性（是否明显不当）", "step5"),
+        ],
+        "focus_headers": ["焦点", "原告观点", "行政机关观点", "分析", "依据"],
+    },
+}
+
+
+def _domain_of(findings: Dict[str, Any]) -> str:
+    value = str((findings.get("case_summary") or {}).get("case_domain") or "").strip().lower()
+    text = value + str((findings.get("case_summary") or {}).get("cause") or "")
+    if "刑事" in text or "罪" in text or value == "criminal":
+        return "criminal"
+    if "行政" in text or value == "administrative":
+        return "administrative"
+    return "civil"
+
+
+def _render_timeline(timeline: List[Dict[str, Any]]) -> List[str]:
+    """线性时间线：按真实时间正序，同日期合并成一组，粗略时间标出精确度。"""
+    if not timeline:
+        return ["- 暂无可提取的时间节点"]
+
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for t in timeline:
+        key = str(t.get("date") or "时间待确认").strip()
+        groups.setdefault(key, []).append(t)
+
+    ordered = sorted(groups.items(), key=lambda kv: _date_key(kv[0]))
+    out: List[str] = []
+    for idx, (date, items) in enumerate(ordered):
+        granularity = _date_granularity(date)
+        suffix = ""
+        if granularity == "年":
+            suffix = "　（{0}，月份日期未提供，按年度记）".format("仅到年")
+        elif granularity == "月":
+            suffix = "　（仅到月）"
+        out.append(f"**{date}**{suffix}")
+        for t in items:
+            src = t.get("source") or {}
+            loc = f"{src.get('file', '')} {src.get('locator', '')}".strip()
+            conf = str(t.get("confidence") or "")
+            note = "　⚠ 低置信，需核对原件" if conf in ("low", "medium") else ""
+            line = f"- {t.get('text', '')}"
+            if loc:
+                line += f"　`{loc}`"
+            out.append(line + note)
+        if idx < len(ordered) - 1:
+            out.append("")
+    return out
+
+
 def render_report(analysis: Dict[str, Any], chat: Dict[str, Any], mcp_status: Dict[str, Any]) -> str:
     stats = analysis.get("stats") or {}
     facts = analysis.get("facts") or []
@@ -133,32 +240,37 @@ def render_report(analysis: Dict[str, Any], chat: Dict[str, Any], mcp_status: Di
         out.append(f"- {label}：{summary.get(key) or PLACEHOLDER}")
     out.append("")
 
+    # 图片用途标注：Agent 看图后写入 05案件信息/image_labels.json，优先于“需人工核对”
+    labels = analysis.get("image_labels") or {}
+
     out += ["## 2. 材料与来源说明", ""]
     for src in chat.get("sources") or []:
-        if isinstance(src, dict):
-            out.append(f"- `{src.get('file')}`（{src.get('type')}）"
-                       + ("，需人工核对" if src.get("needs_review") else ""))
+        if not isinstance(src, dict):
+            continue
+        file = src.get("file") or ""
+        label = labels.get(file) or {}
+        if label.get("用途"):
+            line = f"- `{file}` —— {label['用途']}"
+            if label.get("类型"):
+                line += f"（{label['类型']}）"
+        else:
+            line = f"- `{file}`（{src.get('type')}）"
+            if src.get("needs_review"):
+                line += "，尚未识别，需人工核对"
+        out.append(line)
     for warning in chat.get("warnings") or []:
         out.append(f"- 提示：{warning}")
     out.append("")
 
     out += ["## 3. 案件事实时间线", ""]
-    out += _md_table(["时间", "事件", "来源定位", "置信度"],
-                     [[t.get("date") or "待确认", t.get("text", ""),
-                       f"{t.get('source', {}).get('file')} {t.get('source', {}).get('locator')}",
-                       t.get("confidence", "")] for t in timeline] or [["—", "—", "—", "—"]])
+    out += _render_timeline(timeline)
     out.append("")
 
-    out += ["## 4. 法律关系分析", "", "### 4.1 第一阶段：五步骤", ""]
-    steps = [
-        ("1. 明确争议点及与其相关的法律关系", legal.get("step1")),
-        ("2. 确定是否产生了法律关系", legal.get("step2")),
-        ("3. 分析法律关系的性质", legal.get("step3")),
-        ("4. 分析法律关系的各要素", legal.get("step4")),
-        ("5. 考察法律关系的变动", legal.get("step5")),
-    ]
-    for name, value in steps:
-        out.append(f"**{name}**：{value or PLACEHOLDER}")
+    domain = _domain_of(findings)
+    framework = DOMAIN_FRAMEWORKS[domain]
+    out += [f"## 4. {framework['label']}分析", "", f"### 4.1 第一阶段：{'五步骤' if domain == 'civil' else '要件审查'}", ""]
+    for name, key in framework["steps"]:
+        out.append(f"**{name}**：{legal.get(key) or PLACEHOLDER}")
         out.append("")
     out += ["### 4.2 第二阶段：三段论涵摄与参考结论", ""]
     out.append(str(legal.get("syllogism") or PLACEHOLDER))
@@ -172,10 +284,18 @@ def render_report(analysis: Dict[str, Any], chat: Dict[str, Any], mcp_status: Di
     out.append("")
 
     out += ["## 6. 争议焦点双列表", ""]
-    out += _md_table(["焦点", "原告观点", "被告观点", "分析", "依据"],
-                     [[d.get("focus", ""), d.get("plaintiff_view", ""), d.get("defendant_view", ""),
-                       d.get("analysis", ""), "、".join((d.get("fact_ids") or []) + (d.get("law_source_ids") or []))]
-                      for d in disputes] or [["—", "—", "—", "—", "—"]])
+    headers = framework["focus_headers"]
+    side_a, side_b = headers[1], headers[2]
+    rows = []
+    for d in disputes:
+        rows.append([
+            d.get("focus", ""),
+            d.get(side_a, d.get("plaintiff_view", "")),
+            d.get(side_b, d.get("defendant_view", "")),
+            d.get("analysis", ""),
+            "、".join((d.get("fact_ids") or []) + (d.get("law_source_ids") or [])),
+        ])
+    out += _md_table(headers, rows or [["—"] * len(headers)])
     out.append("")
 
     out += ["## 7. 法律法规司法解释等相关规定", ""]
@@ -332,6 +452,7 @@ def analyze(case_dir: Path, case_type: str, findings_path: Path, no_mcp: bool) -
         "law_search": law_search or {"query": "", "results": []},
         "case_search": case_search or {"query": "", "results": [], "date_filter": ">=2021-01-01"},
         "confirmation_checklist": questions,
+        "image_labels": _load(case_dir / "05案件信息" / "image_labels.json"),
         "analysis_source": "agent_findings" if findings else "chat_derived_only",
     }
     completeness = check_completeness.check(case_dir, analysis, chat, mcp_status)

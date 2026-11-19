@@ -33,6 +33,22 @@ ToolSearch(tool_names=[
 
 再用 `python scripts/yuandian_search.py probe --case-dir <目录> --tools-json <文件>` 校验；退出码 1 表示未连全。
 
+## 一键检索（默认走这个，不要手工拼 query）
+
+```bash
+python scripts/auto_search.py plan --case-dir <目录> [--province 浙江] [--focus "覆盖争点"]
+# 读 06运行记录/agent_findings.json 的 case_summary.cause + dispute_focus，
+# 自动生成 4 份参数到 05案件信息/mcp_calls/，查询词里的当事人姓名替换为“当事人”
+python scripts/auto_search.py ingest-all --case-dir <目录> --refresh
+# 扫 06运行记录/mcp_raw/{provider}_{kind}.json 批量入库，双源合并后直接重跑报告
+```
+
+分工：脚本只管出词、构造参数、校验与合并；真正联网调用仍由 Agent 执行（`DeferExecuteTool`），
+原始返回原样落盘，保证可复核。手工 `build-call` 只在需要跑非常规查询时使用。
+
+法条召回以元典为主：企查查法条语义检索对“劳务/合同”这类词会泛化召回铁路用工、涉外劳务、
+船员等无关法规，入库后若两源法域明显不一致，报告只保留元典并在交叉校验记冲突。
+
 ## 调用参数（用新字段名）
 
 法条检索：

@@ -67,26 +67,29 @@ python ../court-civil-first-instance-filing/scripts/organize_materials.py \
 # 3 解析聊天记录（截图 + 导出 txt/docx）
 python scripts/parse_chat_records.py --case-dir "<案件目录>"
 
-# 4 双源法律/案例检索（Agent 层：ToolSearch 反查 → DeferExecuteTool；脚本只构造与校验）
+# 3.1 ★必做★ 逐张看截图并标注用途（身份证/银行卡/送达地址/还款记录等）
+# OCR 不可用时 parse 会把图片标“需人工核对”，绝不能就此跳过——必须 Agent 逐张 ViewImage，
+# 把用途写进 05案件信息/image_labels.json（键=03图片件/xxx.jpg，值={"用途","类型","证据价值"}）。
+python scripts/label_images.py --case-dir "<案件目录>"      # 未标注则退出码 1
+
+# 3.2 整理证据包 + 证据目录（按证明目的分组，无关/存疑单列）
+python scripts/build_evidence_package.py --case-dir "<案件目录>"
+
+# 3.3 先落初步争点（检索要用）：06运行记录/agent_findings.json 里至少写
+#     {"case_summary": {"cause": "劳务合同纠纷"}, "dispute_focus": [{"focus": "是否存在事实劳务合同关系"}]}
+#     争点写成“争什么”的短句，不要写当事人姓名 —— 它会直接进第三方检索词
+
+# 4 双源法律/案例检索：一键生成 4 份调用参数（按案由+争点自动出词，当事人姓名脱敏）
+#   前置：Agent 已经读完材料，先把 case_summary.cause 与 dispute_focus 落成
+#   06运行记录/agent_findings.json（只写这两项也行），检索词从它生成；不写则回退到 --cause/--focus
 python scripts/yuandian_search.py probe --case-dir "<案件目录>" \
   --tools-json "<06运行记录/resolved_tools.json>" --providers yuandian,qcc
-# 元典：法规语义 + 类案
-python scripts/yuandian_search.py build-call --provider yuandian --kind law \
-  --query "民间借贷逾期利息 利率保护上限" --out "<06运行记录/call_yuandian_law.json>"
-python scripts/yuandian_search.py build-call --provider yuandian --kind case \
-  --query "民间借贷 微信聊天记录 借款合意 实际交付" --province "浙江省" \
-  --out "<06运行记录/call_yuandian_case.json>"
-# 企查查：法条语义 + 普通案例（权威案例另调 get_judicial_authoritative_case_search）
-python scripts/yuandian_search.py build-call --provider qcc --kind law \
-  --query "民间借贷逾期利息 利率保护上限" --out "<06运行记录/call_qcc_law.json>"
-python scripts/yuandian_search.py build-call --provider qcc --kind case \
-  --query "民间借贷 微信聊天记录 借款合意 实际交付" --province "浙江省" \
-  --out "<06运行记录/call_qcc_case.json>"
-# Agent 执行 4 个 MCP 调用后把原始返回落盘，再分别 ingest（自动双源合并/冲突标记）
-python scripts/yuandian_search.py ingest --provider yuandian --kind law --raw "<06运行记录/yuandian_law_raw.json>" --case-dir "<案件目录>"
-python scripts/yuandian_search.py ingest --provider yuandian --kind case --raw "<06运行记录/yuandian_case_raw.json>" --case-dir "<案件目录>"
-python scripts/yuandian_search.py ingest --provider qcc --kind law --raw "<06运行记录/qcc_law_raw.json>" --case-dir "<案件目录>"
-python scripts/yuandian_search.py ingest --provider qcc --kind case --raw "<06运行记录/qcc_case_raw.json>" --case-dir "<案件目录>"
+python scripts/auto_search.py plan --case-dir "<案件目录>" [--province "浙江省"] [--focus "可覆盖争点"]
+# → 05案件信息/search_plan.json（查询词+依据）、05案件信息/mcp_calls/{provider}_{kind}.json
+#   Agent 按 calls 逐条 DeferExecuteTool，把原始返回原样落 06运行记录/mcp_raw/{provider}_{kind}.json
+#   法条以元典召回为主，企查查法条仅作交叉印证（易泛化召回铁路/涉外劳务，报告按法域取舍）
+python scripts/auto_search.py ingest-all --case-dir "<案件目录>" --refresh
+# → 自动识别 provider/kind、双源合并与冲突标记，并重跑分析报告（缺源会列出 missing 并退出码 1）
 
 # 4.5 定稿前引用核验（企查查回库校验，去幻觉）
 # Agent 层把报告/诉状中所有“《法名》第 N 条”整段传入：
@@ -132,9 +135,39 @@ python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
 
 内部工具：`scripts/docx_helper.py` 用标准库生成/填充 docx，无 `python-docx` 依赖。
 
+## 当事人信息结构（`05案件信息/party_info.json`）
+
+支持单人与多当事人，`scripts/party_info.py` 统一读成标准结构：
+
+```jsonc
+// 单人（兼容旧写法）
+{"原告":"张三","身份证号":"...","电话":"...","送达地址":"...",
+ "收款户名":"...","收款开户行":"...","收款账号":"...","_待核对":["..."]}
+
+// 多当事人（推荐，个案有多个原告/被告时用）
+{"当事人":[
+   {"角色":"原告","姓名":"张三","身份证号":"...","电话":"...","送达地址":"...",
+    "收款户名":"...","收款开户行":"...","收款账号":"..."},
+   {"角色":"被告","姓名":"李四"}
+ ],
+ "_来源":{...},"_待核对":[...]}
+```
+
+模板里的“原告/被告”姓名栏在多当事人时用顿号连接；账户、送达等只填主当事人（第一个），需要每人各出一份确认书时单独生成。
+
+## 分析框架按案件领域切换
+
+`case_summary.case_domain` 取 `civil`（默认）/ `criminal` / `administrative`，或由案由关键词自动判断（含“罪”→刑事，含“行政”→行政）。报告第 4 章框架与第 6 章争议焦点表头随之切换：
+
+| 领域 | 第4章框架 | 争议焦点表头 |
+|---|---|---|
+| 民事 | 法律关系五步骤 | 原告观点 / 被告观点 |
+| 刑事 | 犯罪构成四要件 + 阻却事由 | 控方观点 / 辩方观点 |
+| 行政 | 行政行为合法性五要素 | 原告观点 / 行政机关观点 |
+
 ## 输出清单
 
-- **一审 sp**：起诉状（普通版 / 要素式二选一，按案由挑模板）、送达地址确认书、账户确认书、证据目录、授权委托书（有代理时）、提交材料清单.md。
+- **一审 sp**：起诉状（普通版 / 要素式二选一，按案由挑模板）、送达地址确认书、**当事人银行账户确认书**（bank_account 表格版，不用诉讼费退费版）、证据目录、授权委托书（有代理时）、提交材料清单.md。
 - **诉状填充硬规则**：普通版用通用占位符模板（`民事起诉状-通用版.docx`，7 个占位符：原告/原告身份信息/被告/被告身份信息/诉讼请求/事实与理由/受理法院）。**保留模板全部原文与版式，只替换占位符**；**有什么写什么、没有的留空**，禁止写"待补/待确认/（待补充）"，禁止往模板末尾追加"填写内容"重复段落，禁止为个案拆分占位符（如身份信息 A/B、诉请 1/2）。占位符值优先取 `06运行记录/complaint_text.json`，Agent 只写真实内容。
 - **执行 zx**：强制执行申请书、送达地址确认书、收款账户确认书、证据目录、授权委托书（有代理时）、提交材料清单.md。
 - **可选**（明确要求才做）：财产保全、延期/线上开庭、撤诉、追加被告、执行结案、网络查控、情况说明、仲裁三件套、债权转移、劳务委托书。模板见 `manage_templates.py --list`。
@@ -144,11 +177,13 @@ python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
 
 ## 合规红线
 
-1. 事实必须有来源定位；低置信度 OCR 标 `needs_review`，不作为确定事实。
-2. 法条/案号必须来自 MCP 检索并带 `source_id`；检索未连接或未命中不写结论。
-3. 不虚构、不内置本地知识库、不以记忆冒充检索结果，不照搬其他 Skill 的作者/律所信息。
-4. **模板只认技能自带实战包**（`assets/templates/`，44 个文书，已脱敏）。禁止联网下载、禁止生成“骨架/自造模板”顶替；模板缺失就报错并让用户补文件。
-5. 输出附：本报告为基于所提供材料的辅助分析，不构成正式法律意见；事实以证据原件为准，法条与类案以检索来源为准，最终结论以律师确认为准。
+1. **生成文书前必须逐张看完截图并标注用途**。OCR 不可用不等于可以跳过——身份证号、银行卡号、送达地址常只在截图里。`render_documents.py` 会跑 `label_images` 体检，有未标注图片直接拒绝生成。某劳务合同纠纷案就是漏看截图，导致身份证/银行卡/地址没填进去，必须避免重犯。
+2. 事实必须有来源定位；低置信度 OCR 标 `needs_review`，不作为确定事实。
+3. 报告里的图片必须写清用途（`image_labels.json`），不能只写“需人工核对”了事。
+4. 法条/案号必须来自 MCP 检索并带 `source_id`；检索未连接或未命中不写结论。
+5. 不虚构、不内置本地知识库、不以记忆冒充检索结果，不照搬其他 Skill 的作者/律所信息。
+6. **模板只认技能自带实战包**（`assets/templates/`，44 个文书，已脱敏）。禁止联网下载、禁止生成“骨架/自造模板”顶替；模板缺失就报错并让用户补文件。
+7. 输出附：本报告为基于所提供材料的辅助分析，不构成正式法律意见；事实以证据原件为准，法条与类案以检索来源为准，最终结论以律师确认为准。
 
 ## 参考文档
 
