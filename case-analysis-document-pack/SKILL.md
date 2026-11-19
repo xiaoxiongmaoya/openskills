@@ -33,7 +33,7 @@ author: "case-assistant"
 2. 真实工具名：元典 `yuandian_semantic_search_legal_articles` / `yuandian_semantic_search_cases`；企查查 `mcp__qcc-legal__get_legal_article_semantic_search` / `mcp__qcc-legal__get_judicial_case_search`。返回结构见 @references/mcp-yuandian.md、@references/mcp-qcc.md。
 3. 一个源都没连：**暂停法律/案例检索**，报告只写有来源的事实，法律与类案章节留占位并标“待核验”。**严禁虚构法条、案号、法院**。
 4. 工具名会随显示名漂移：先用 `ToolSearch(tool_names=[...])` 反查真实全名，再用 `DeferExecuteTool` 调用。详见 @references/mcp-yuandian.md 与 @references/mcp-qcc.md。
-5. **模板来源**：技能自带 `assets/templates/`（43 条登记：32 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。`manage_templates.py --list` 查全表；`.doc` 旧格式只从仓库外原始包 `templates_raw/` 复制原件 + 出「填写内容」docx，不改二进制。
+5. **模板来源**：技能自带 `assets/templates/`（43 条登记：32 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。`manage_templates.py --list` 查全表；`.doc` 旧格式从 `_raw_doc/` 复制原件 + 出「填写内容」docx，不改二进制。
 6. 聊天截图 OCR 为可选能力：有 OCR 库则识别；没有则标 `needs_review`，由律师人工核对，不把 OCR 猜测当事实。
 
 ## 硬边界（不可违反）

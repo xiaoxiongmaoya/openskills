@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """构建「民事起诉状（普通版）」通用模板。
 
-来源：`<仓库根>/../templates_raw/诉状模板(1)(1).doc`（原包已移出仓库；实为 docx 改后缀的空白表单）。
+来源：`_raw_doc/诉状模板(1)(1).doc`（技能目录内，已 gitignore；实为 docx 改后缀的空白表单）。
 做法：保留原文件全部段落样式（仿宋、行距、缩进），逐段替换文字为 {{字段}} 占位符，
       不重建文档结构，避免版式漂移。
 
@@ -19,7 +19,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "assets" / "templates"
-RAW_DIR = HERE.parents[2] / "templates_raw"
+RAW_DIR = HERE.parent / "_raw_doc"
 DEFAULT_RAW = RAW_DIR / "诉状模板(1)(1).doc"
 DEFAULT_OUT = ASSETS / "01-起诉与答辩" / "民事起诉状（普通版）.docx"
 
