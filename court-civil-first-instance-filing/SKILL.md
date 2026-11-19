@@ -1,19 +1,19 @@
 ---
 name: court-civil-first-instance-filing
 
-display_name: "法院民事一审在线立案"
+display_name: "法院民事一审在线立案 + 强制执行申请"
 
-display_name_en: "Court Civil First Instance Online Filing"
+display_name_en: "Court Civil Filing & Enforcement Application"
 
-description: "登录法院诉讼服务平台并完成民事一审在线立案全链路（登录、建草稿、案由/当事人/代理人/标的额、材料上传、诉请、提交、状态查询）。当用户要求登录法院账号、在线立案、民事一审、提交立案材料、查询立案状态时使用本技能。"
+description: "登录法院诉讼服务平台并完成民事一审立案与强制执行申请全链路（登录、建草稿、案由或执行依据/原审信息、当事人/代理人、标的额、材料上传、诉请或执行请求、提交、状态查询）。当用户要求登录法院账号、在线立案、民事一审、申请强制执行、提交立案材料、查询立案状态时使用本技能。"
 
-description_zh: "登录法院诉讼服务平台（默认 zxfw.court.gov.cn，兼容同构各地法院网），完成民事一审在线立案全链路：SM2 登录、建草稿、匹配法院、案由/当事人/代理人/标的额、材料上传（签名→OSS→槽位）、诉请、人工确认后提交、按 id 查状态。凭证零硬编码。"
+description_zh: "登录法院诉讼服务平台（默认 zxfw.court.gov.cn，兼容同构各地法院网），完成民事一审立案与强制执行申请（case_type=zx）全链路：SM2 登录、建草稿、匹配法院、案由或执行依据/原审信息、当事人/代理人/标的额、材料上传（签名→OSS→槽位）、诉请或执行请求、人工确认后提交、按 id 查状态。凭证零硬编码。"
 
-description_en: "Log in to court litigation platforms and complete civil first-instance online filing: SM2 login, draft, court match, cause/parties/agent/amount, material upload, claims, confirm-then-submit, status query by filing id."
+description_en: "Log in to court litigation platforms and complete civil first-instance filing and enforcement application: SM2 login, draft, court match, cause or enforcement basis, parties/agent/amount, material upload, claims or enforcement requests, confirm-then-submit, status query by filing id."
 
 category: "writing"
 
-version: "1.5.1"
+version: "1.5.2"
 
 author: "court-assistant"
 ---
