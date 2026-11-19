@@ -84,13 +84,6 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "title": "人民法院案件送达地址确认书",
         "scope": ["sp", "zx"], "kind": "core",
     },
-    "delivery_scotus": {
-        # 最高法统一格式空白表单，原包自带，未做占位符化
-        "file": "02-立案通用件/送达地址确认书（最高法版）.docx",
-        "src": "送达地址确认书.docx",
-        "title": "人民法院案件送达地址确认书（最高法版）",
-        "scope": ["sp", "zx"], "kind": "optional",
-    },
     "delivery_court_2025_doc": {
         "file": "02-立案通用件/送达地址确认书（法院最新版）.doc",
         "src": "送达地址确认书（最新）.doc",

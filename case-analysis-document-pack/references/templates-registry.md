@@ -1,6 +1,6 @@
 # 模板来源与登记（本地实战模板包）
 
-**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，45 条登记：34 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。
+**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，44 条登记：33 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。
 **没有下载、没有骨架生成、没有联网**。缺模板直接报错，禁止伪造替代文件。
 
 ## 目录
@@ -8,7 +8,7 @@
 ```text
 case-analysis-document-pack/assets/templates/
   <32 个 .docx>     已脱敏，随仓库分发（status=local_practice）
-  _raw/             原始模板包（43 个，含真实当事人信息，已 gitignore，仅本机可用）
+  _raw/             原始模板包（42 个，含真实当事人信息，已 gitignore，仅本机可用）
 ```
 
 `_raw/` 里的 12 个 `.doc` 是旧二进制格式，无法无损脱敏，因此**不入库**；
@@ -117,7 +117,6 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 | 02-立案通用件 | `bank_account` | `账户确认书（当事人）.docx` | 当事人银行账户确认书-通用版.docx | 当事人银行账户确认书 |
 | 02-立案通用件 | `account` | `账户确认书（诉讼费退费及收款）.docx` | 诉讼费退费及收取生效判决金钱债权账户确认书.docx | 诉讼费退费及收取金钱债权账户确认书 |
 | 02-立案通用件 | `delivery` | `送达地址确认书.docx` | 送达地址确认书-通用版.docx | 人民法院案件送达地址确认书 |
-| 02-立案通用件 | `delivery_scotus` | `送达地址确认书（最高法版）.docx` | 送达地址确认书.docx | 人民法院案件送达地址确认书（最高法版） |
 | 02-立案通用件 | `delivery_court_2025_doc` | `送达地址确认书（法院最新版）.doc` | 送达地址确认书（最新）.doc | 送达地址确认书（法院最新版） |
 | 03-证据 | `evidence_detailed` | `证据材料清单（详细）.docx` | （详细）证据清单.docx | 诉讼当事人提交证据材料清单 |
 | 03-证据 | `evidence` | `证据目录.docx` | 证据目录.docx | 证据目录 |
