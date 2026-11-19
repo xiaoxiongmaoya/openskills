@@ -206,17 +206,18 @@ class PipelineTest(unittest.TestCase):
 
         # 8.1 模板只读：副本不可写、与源一致
         tpl_dir = self.root / "通用件" / "模板"
-        for tpl in tpl_dir.iterdir():
-            if tpl.name == "来源登记.json":
-                continue
+        copies = [p for p in tpl_dir.rglob("*") if p.is_file() and p.name != "来源登记.json"]
+        self.assertGreaterEqual(len(copies), 4)
+        for tpl in copies:
             self.assertFalse(tpl.stat().st_mode & 0o200, f"模板应只读：{tpl}")
-            origin = NEW / "assets" / "templates" / tpl.name
-            if origin.exists():
-                self.assertEqual(tpl.read_bytes(), origin.read_bytes(), tpl)
+            rel = tpl.relative_to(tpl_dir)
+            origin = NEW / "assets" / "templates" / rel
+            self.assertTrue(origin.exists(), f"副本没有对应源模板：{rel}")
+            self.assertEqual(tpl.read_bytes(), origin.read_bytes(), tpl)
         self.run_cmd([PY, NEW / "scripts/manage_templates.py", "--root", self.root, "--verify"], expect=0)
 
         # 8.2 手改副本 → verify 必须报错，restore 能还原
-        victim = next(p for p in tpl_dir.iterdir() if p.suffix == ".docx")
+        victim = next(p for p in tpl_dir.rglob("*.docx") if p.is_file())
         victim.chmod(0o666)
         victim.write_bytes(b"tampered")
         self.run_cmd([PY, NEW / "scripts/manage_templates.py", "--root", self.root, "--verify"], expect=1)

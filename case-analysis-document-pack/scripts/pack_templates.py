@@ -21,6 +21,7 @@ import argparse
 import hashlib
 import json
 import re
+import sys
 import zipfile
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
@@ -385,10 +386,21 @@ def scan(path: Path) -> Dict[str, int]:
     return found
 
 
+def _target_map() -> Dict[str, str]:
+    """原包文件名 -> assets/templates 下的规范相对路径（唯一来源：manage_templates 登记表）。"""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        import manage_templates as mt
+    except Exception:
+        return {}
+    return {v["src"]: v["file"] for v in mt.TEMPLATES.values()}
+
+
 def cmd_sanitize(raw: Path, out: Path) -> int:
     if not raw.is_dir():
         raise SystemExit(f"原始模板目录不存在：{raw}")
     out.mkdir(parents=True, exist_ok=True)
+    target_map = _target_map()
     names = load_known_names(raw)
     _install_names(names)
     manifest: Dict[str, object] = {"templates": {}, "known_names": names}
@@ -400,7 +412,11 @@ def cmd_sanitize(raw: Path, out: Path) -> int:
         if src.suffix.lower() != ".docx" or not zipfile.is_zipfile(src):
             skipped.append(src.name)
             continue
-        dst = out / src.name
+        rel = target_map.get(src.name)
+        if not rel:
+            skipped.append(f"{src.name}（未在 manage_templates 登记，跳过）")
+            continue
+        dst = out / rel
         try:
             stats = sanitize_docx(src, dst)
         except PermissionError:
@@ -427,7 +443,8 @@ def cmd_sanitize(raw: Path, out: Path) -> int:
 
 
 def cmd_scan(target: Path) -> int:
-    rows = {p.name: scan(p) for p in sorted(target.glob("*.docx"))}
+    files = [p for p in sorted(target.rglob("*.docx")) if "_raw" not in p.parts]
+    rows = {str(p.relative_to(target)): scan(p) for p in files}
     dirty = {k: v for k, v in rows.items() if v}
     print(json.dumps({"checked": len(rows), "dirty": dirty}, ensure_ascii=False, indent=2))
     return 0

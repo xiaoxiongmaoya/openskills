@@ -20,7 +20,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "assets" / "templates"
 DEFAULT_RAW = ASSETS / "_raw" / "诉状模板(1)(1).doc"
-DEFAULT_OUT = ASSETS / "民事起诉状-普通版.docx"
+DEFAULT_OUT = ASSETS / "01-起诉与答辩" / "民事起诉状（普通版）.docx"
 
 PH = "{{%s}}"
 

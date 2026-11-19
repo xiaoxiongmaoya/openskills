@@ -33,7 +33,7 @@ author: "case-assistant"
 2. 真实工具名：元典 `yuandian_semantic_search_legal_articles` / `yuandian_semantic_search_cases`；企查查 `mcp__qcc-legal__get_legal_article_semantic_search` / `mcp__qcc-legal__get_judicial_case_search`。返回结构见 @references/mcp-yuandian.md、@references/mcp-qcc.md。
 3. 一个源都没连：**暂停法律/案例检索**，报告只写有来源的事实，法律与类案章节留占位并标“待核验”。**严禁虚构法条、案号、法院**。
 4. 工具名会随显示名漂移：先用 `ToolSearch(tool_names=[...])` 反查真实全名，再用 `DeferExecuteTool` 调用。详见 @references/mcp-yuandian.md 与 @references/mcp-qcc.md。
-5. **模板来源**：技能自带 `assets/templates/`（44 个律师实战文书，已脱敏）。`manage_templates.py --list` 查全表；`.doc` 旧格式只复制原件 + 出「填写内容」docx，不改二进制。
+5. **模板来源**：技能自带 `assets/templates/`（45 条登记：34 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。`manage_templates.py --list` 查全表；`.doc` 旧格式只复制原件 + 出「填写内容」docx，不改二进制。
 6. 聊天截图 OCR 为可选能力：有 OCR 库则识别；没有则标 `needs_review`，由律师人工核对，不把 OCR 猜测当事实。
 
 ## 硬边界（不可违反）
@@ -183,7 +183,7 @@ python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
 3. 报告里的图片必须写清用途（`image_labels.json`），不能只写“需人工核对”了事。
 4. 法条/案号必须来自 MCP 检索并带 `source_id`；检索未连接或未命中不写结论。
 5. 不虚构、不内置本地知识库、不以记忆冒充检索结果，不照搬其他 Skill 的作者/律所信息。
-6. **模板只认技能自带实战包**（`assets/templates/`，44 个文书，已脱敏）。禁止联网下载、禁止生成“骨架/自造模板”顶替；模板缺失就报错并让用户补文件。
+6. **模板只认技能自带实战包**（`assets/templates/`，45 条登记：34 份 docx + 11 份 .doc 原件，按 10 类子目录存放，已脱敏）。禁止联网下载、禁止生成“骨架/自造模板”顶替；模板缺失就报错并让用户补文件。
 7. **真实当事人信息不得进入技能目录、文档、测试与提交**。姓名、身份证、手机、银行卡、
    完整案号、到门牌住址、聊天原文，一律只留在 `<工作空间根>/案件库/`；写文档/示例/测试样例时
    换成张三、李四、110101199001010000、13800000000、123456789012345678、（2025）浙0000民初1号。

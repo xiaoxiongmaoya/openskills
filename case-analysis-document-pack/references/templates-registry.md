@@ -1,6 +1,6 @@
 # 模板来源与登记（本地实战模板包）
 
-**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，44 个文书，已入库）。
+**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，45 条登记：34 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。
 **没有下载、没有骨架生成、没有联网**。缺模板直接报错，禁止伪造替代文件。
 
 ## 目录
@@ -8,7 +8,7 @@
 ```text
 case-analysis-document-pack/assets/templates/
   <32 个 .docx>     已脱敏，随仓库分发（status=local_practice）
-  _raw/             原始模板包（44 个，含真实当事人信息，已 gitignore，仅本机可用）
+  _raw/             原始模板包（43 个，含真实当事人信息，已 gitignore，仅本机可用）
 ```
 
 `_raw/` 里的 12 个 `.doc` 是旧二进制格式，无法无损脱敏，因此**不入库**；
@@ -93,33 +93,75 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 
 `scan` 走同一套规则，改完脱敏逻辑必须重跑；**残留不是 0 就别推仓库**。
 
-## 登记表（key → 本地规范名 → 原包文件名）
+## 分类与命名规范
 
-`manage_templates.py:TEMPLATES` 是唯一权威，`--list` 可打印全表。核心件：
+模板按业务流程分 10 类，文件名统一为「文书正式名称（限定词）」：
 
-| key | 本地规范名 | 原包文件 | 用途 |
-| --- | --- | --- | --- |
-| `complaint_ordinary` | `01-民事起诉状-普通版.docx` | 诉状模板(1)(1).doc（docx 改后缀） | 通用（普通版）诉状，要素式无对应案由时兜底 |
-| `complaint_elements_loan` | `02-要素式起诉状-民间借贷.docx` | 新借贷模板.docx | 借贷案由要素式（标题自带案由） |
-| `complaint_elements_traffic` | `02-要素式起诉状-机动车交通事故.docx` | 机动车交通事故责任纠纷起诉状.docx | 交通事故案由要素式 |
-| `complaint_elements_sale` | `02-要素式起诉状-买卖合同.doc` | 新买卖要素式.doc | 买卖案由要素式（旧格式） |
-| `delivery` | `03-送达地址确认书.docx` | 送达地址确认书.docx（最高法版） | 送达地址确认 |
-| `account` | `04-账户确认书.docx` | 诉讼费退费及收取生效判决金钱债权账户确认书.docx | 诉讼费退费/收款账户 |
-| `payee_account` | `04-收款账户确认书.doc` | 当事人银行账户确认书（新版）.doc | 执行收款账户 |
-| `evidence` | `05-证据目录.docx` | 证据目录.docx | 证据目录 |
-| `authorization` | `06-授权委托书.docx` | 法山立案授权委托书.docx | 授权委托（立案用） |
-| `enforcement` | `07-强制执行申请书.docx` | 强制执行申请书.docx | 执行申请 |
+- 不带序号前缀（分类已承担排序）、不带 `1、`/`(1)`/`- 副本`/`模板` 这类噪音；
+- 括号统一全角 `（）`，限定词只写案由、主体或格式差异；
+- `.doc` 旧格式只在 `_raw`，文件名同样按此规范登记。
 
-其余 34 个为 optional（答辩状、保全、延期/线上开庭、撤诉、追加被告、执行结案、网络查控、
-情况说明、仲裁三件套、债权转移、劳务委托等），见 `--list`。
+## 登记表（key → 规范名 → 原包文件名）
+
+`manage_templates.py:TEMPLATES` 是唯一权威，`--list` 可打印全表。
+
+| 分类 | key | 规范名 | 原包文件 | 用途 |
+| --- | --- | --- | --- | --- |
+| 01-起诉与答辩 | `answer_construction` | `民事答辩状（建设工程施工合同纠纷）.docx` | 建设工程施工合同纠纷答辩状.docx | 民事答辩状（建设工程施工合同纠纷） |
+| 01-起诉与答辩 | `complaint_ordinary` | `民事起诉状（普通版）.docx` | 民事起诉状-普通版.docx | 民事起诉状（普通版·通用） |
+| 01-起诉与答辩 | `complaint_elements_sale` | `要素式起诉状（买卖合同纠纷）.doc` | 新买卖要素式.doc | 要素式民事起诉状（买卖合同纠纷） |
+| 01-起诉与答辩 | `complaint_elements_traffic` | `要素式起诉状（机动车交通事故责任纠纷）.docx` | 机动车交通事故责任纠纷起诉状.docx | 要素式民事起诉状（机动车交通事故责任纠纷） |
+| 01-起诉与答辩 | `complaint_elements_loan` | `要素式起诉状（民间借贷纠纷）.docx` | 新借贷模板.docx | 要素式民事起诉状（民间借贷纠纷） |
+| 02-立案通用件 | `material_list_doc` | `立案材料清单.doc` | 材料清单 (1).doc | 立案材料清单 |
+| 02-立案通用件 | `payee_account` | `账户确认书（当事人·旧版）.doc` | 当事人银行账户确认书（新版）.doc | 当事人银行账户确认书（旧版 .doc，仅人工填写） |
+| 02-立案通用件 | `bank_account` | `账户确认书（当事人）.docx` | 当事人银行账户确认书-通用版.docx | 当事人银行账户确认书 |
+| 02-立案通用件 | `account` | `账户确认书（诉讼费退费及收款）.docx` | 诉讼费退费及收取生效判决金钱债权账户确认书.docx | 诉讼费退费及收取金钱债权账户确认书 |
+| 02-立案通用件 | `delivery` | `送达地址确认书.docx` | 送达地址确认书-通用版.docx | 人民法院案件送达地址确认书 |
+| 02-立案通用件 | `delivery_scotus` | `送达地址确认书（最高法版）.docx` | 送达地址确认书.docx | 人民法院案件送达地址确认书（最高法版） |
+| 02-立案通用件 | `delivery_court_2025_doc` | `送达地址确认书（法院最新版）.doc` | 送达地址确认书（最新）.doc | 送达地址确认书（法院最新版） |
+| 03-证据 | `evidence_detailed` | `证据材料清单（详细）.docx` | （详细）证据清单.docx | 诉讼当事人提交证据材料清单 |
+| 03-证据 | `evidence` | `证据目录.docx` | 证据目录.docx | 证据目录 |
+| 03-证据 | `evidence_detail` | `证据目录及说明.docx` | 证据目录及说明（适用于各类案件）.docx | 证据目录及说明 |
+| 03-证据 | `evidence_catalog_doc` | `证据目录（旧版）.doc` | 证据目录模板.doc | 证据目录（旧版） |
+| 04-委托代理 | `authorization_relative_doc` | `授权委托书（亲属代理）.doc` | 亲属授权委托书模板.doc | 授权委托书（亲属代理） |
+| 04-委托代理 | `authorization_company` | `授权委托书（单位委托）.docx` | 授权委托书 - 副本.docx | 授权委托书（单位委托） |
+| 04-委托代理 | `authorization` | `授权委托书（立案用）.docx` | 法山立案授权委托书.docx | 授权委托书（立案用） |
+| 04-委托代理 | `legal_rep` | `法定代表人身份证明书.docx` | 法定代表人身份证明书1.docx | 法定代表人身份证明书 |
+| 05-保全与查控 | `preservation_withdraw` | `撤回财产保全申请书.docx` | 撤回财产保全申请书.docx | 撤回财产保全申请书 |
+| 05-保全与查控 | `net_inquiry_doc` | `网络查控申请书.doc` | 网络查控申请书.doc | 网络查控申请书 |
+| 05-保全与查控 | `preservation` | `财产保全申请书.docx` | 财产保全申请书.docx | 财产保全申请书 |
+| 05-保全与查控 | `property_clues` | `财产线索清单.docx` | 财产线索(1).docx | 财产线索 |
+| 05-保全与查控 | `preservation_clues` | `财产线索清单（保全）.docx` | 财产保全被告财产线索清单.docx | 财产保全被告财产线索清单 |
+| 06-程序性申请 | `mediation` | `先行调解申请书.docx` | 先行调解申请书.docx | 选择诉前（诉中）先行调解申请书 |
+| 06-程序性申请 | `postpone_hearing` | `延期开庭申请书.docx` | 延期开庭申请书.docx | 延期开庭申请书 |
+| 06-程序性申请 | `withdraw_suit_doc` | `撤诉申请书.doc` | 撤诉申请书.doc | 撤诉申请书 |
+| 06-程序性申请 | `online_hearing` | `线上开庭申请书.docx` | 线上开庭申请书(1).docx | 线上开庭申请书 |
+| 06-程序性申请 | `online_hearing_alt` | `线上开庭申请书（简版）.docx` | 在线开庭书.docx | 线上开庭申请书（简版） |
+| 06-程序性申请 | `add_defendant_doc` | `追加被告申请书.doc` | 追加被告申请书.doc | 追加被告申请书 |
+| 07-执行 | `enforcement` | `强制执行申请书.docx` | 强制执行申请书.docx | 强制执行申请书 |
+| 07-执行 | `enforcement_elements` | `强制执行申请书（要素式）.docx` | 要素式执行.docx | 强制执行申请书（申请执行用·要素式） |
+| 07-执行 | `enforcement_close` | `执行结案申请书.docx` | 执行结案申请书.docx | 执行结案申请书 |
+| 08-情况说明 | `statement_general` | `情况说明.docx` | 情况说明模版.docx | 情况说明 |
+| 08-情况说明 | `statement_cash` | `现金交付情况说明.docx` | 现金情况说明.docx | 现金交付情况说明 |
+| 08-情况说明 | `statement_filing` | `立案情况说明.docx` | 立案情况说明.docx | 立案情况说明 |
+| 08-情况说明 | `statement_filing_other` | `立案情况说明（补充材料）.docx` | 其他材料-立案情况说明.docx | 立案情况说明（补充材料用） |
+| 09-仲裁 | `arbitration` | `仲裁申请书.docx` | 1、仲裁申请书.docx | 仲裁申请书 |
+| 09-仲裁 | `arbitration_doc` | `仲裁申请书（旧版）.doc` | 仲裁模板.doc | 仲裁申请书（旧版） |
+| 09-仲裁 | `arbitration_delivery` | `当事人送达信息确认书.docx` | 6、当事人送达信息确认书.docx | 当事人送达信息确认书（仲裁立案） |
+| 09-仲裁 | `evidence_list_arb` | `申请人证据材料清单.docx` | 5、申请人证据材料清单.docx | 申请人证据材料清单（仲裁） |
+| 09-仲裁 | `answer_arb_doc` | `答辩书.doc` | 7、答辩书.doc | 答辩书（仲裁） |
+| 10-专项（劳务） | `debt_transfer` | `债权转移确认书（劳务合同纠纷）.docx` | 债权转移确认书（劳务合同纠纷专用）.docx | 债权转移确认书（劳务合同纠纷） |
+| 10-专项（劳务） | `labor_entrust` | `劳务欠款纠纷诉讼委托书.docx` | 劳务欠款纠纷诉讼委托书.docx | 劳务欠款纠纷诉讼委托书 |
+
+全部 44 条均在登记表内，`--list` 即全量。
 
 ## 落点与登记
 
 ```text
 <工作空间根>/通用件/模板/
-  01-民事起诉状-普通版.docx
-  02-要素式起诉状-民间借贷.docx
-  ...
+  01-起诉与答辩/
+  02-立案通用件/
+  ...（与 assets/templates 同构，含分类子目录）
   来源登记.json
 ```
 
@@ -127,7 +169,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 
 ```json
 {
-  "02-要素式起诉状-民间借贷.docx": {
+  "01-起诉与答辩/要素式起诉状（民间借贷纠纷）.docx": {
     "key": "complaint_elements_loan",
     "title": "要素式民事起诉状（民间借贷纠纷）",
     "source": "本地实战模板包（律师实务，已脱敏）",

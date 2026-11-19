@@ -47,31 +47,31 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     "complaint_ordinary": {
         # 通用（普通版）诉状：由 _raw/诉状模板(1)(1).doc 转成占位符模板，
         # 案由没有对应要素式模板时用它兜底。
-        "file": "01-民事起诉状-普通版.docx",
+        "file": "01-起诉与答辩/民事起诉状（普通版）.docx",
         "src": "民事起诉状-普通版.docx",
         "title": "民事起诉状（普通版·通用）",
         "scope": ["sp"], "kind": "complaint",
     },
     "complaint_elements_loan": {
-        "file": "02-要素式起诉状-民间借贷.docx",
+        "file": "01-起诉与答辩/要素式起诉状（民间借贷纠纷）.docx",
         "src": "新借贷模板.docx",
         "title": "要素式民事起诉状（民间借贷纠纷）",
         "scope": ["sp"], "kind": "complaint", "causes": ["民间借贷纠纷", "借款合同纠纷"],
     },
     "complaint_elements_traffic": {
-        "file": "02-要素式起诉状-机动车交通事故.docx",
+        "file": "01-起诉与答辩/要素式起诉状（机动车交通事故责任纠纷）.docx",
         "src": "机动车交通事故责任纠纷起诉状.docx",
         "title": "要素式民事起诉状（机动车交通事故责任纠纷）",
         "scope": ["sp"], "kind": "complaint", "causes": ["机动车交通事故责任纠纷"],
     },
     "complaint_elements_sale": {
-        "file": "02-要素式起诉状-买卖合同.doc",
+        "file": "01-起诉与答辩/要素式起诉状（买卖合同纠纷）.doc",
         "src": "新买卖要素式.doc",
         "title": "要素式民事起诉状（买卖合同纠纷）",
         "scope": ["sp"], "kind": "complaint", "causes": ["买卖合同纠纷", "买卖合同"],
     },
     "answer_construction": {
-        "file": "10-答辩状-建设工程施工合同.docx",
+        "file": "01-起诉与答辩/民事答辩状（建设工程施工合同纠纷）.docx",
         "src": "建设工程施工合同纠纷答辩状.docx",
         "title": "民事答辩状（建设工程施工合同纠纷）",
         "scope": ["sp"], "kind": "optional",
@@ -79,241 +79,248 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
     # —— 立案通用件 ——
     "delivery": {
         # 通用占位符版：字段填进表格对应单元格，不再往文末追加“填写内容”
-        "file": "03-送达地址确认书.docx",
+        "file": "02-立案通用件/送达地址确认书.docx",
         "src": "送达地址确认书-通用版.docx",
         "title": "人民法院案件送达地址确认书",
         "scope": ["sp", "zx"], "kind": "core",
     },
+    "delivery_scotus": {
+        # 最高法统一格式空白表单，原包自带，未做占位符化
+        "file": "02-立案通用件/送达地址确认书（最高法版）.docx",
+        "src": "送达地址确认书.docx",
+        "title": "人民法院案件送达地址确认书（最高法版）",
+        "scope": ["sp", "zx"], "kind": "optional",
+    },
     "delivery_court_2025_doc": {
-        "file": "03-送达地址确认书-法院版.doc",
+        "file": "02-立案通用件/送达地址确认书（法院最新版）.doc",
         "src": "送达地址确认书（最新）.doc",
         "title": "送达地址确认书（法院最新版）",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "account": {
-        "file": "04-账户确认书.docx",
+        "file": "02-立案通用件/账户确认书（诉讼费退费及收款）.docx",
         "src": "诉讼费退费及收取生效判决金钱债权账户确认书.docx",
         "title": "诉讼费退费及收取金钱债权账户确认书",
         "scope": ["sp", "zx"], "kind": "core",
     },
     "bank_account": {
         # 一审账户确认书：当事人银行账户确认书（通用占位符版，保留表格原文与签字栏）
-        "file": "04-当事人银行账户确认书.docx",
+        "file": "02-立案通用件/账户确认书（当事人）.docx",
         "src": "当事人银行账户确认书-通用版.docx",
         "title": "当事人银行账户确认书",
         "scope": ["sp", "zx"], "kind": "core",
     },
     "payee_account": {
-        "file": "04-收款账户确认书.doc",
+        "file": "02-立案通用件/账户确认书（当事人·旧版）.doc",
         "src": "当事人银行账户确认书（新版）.doc",
         "title": "当事人银行账户确认书（旧版 .doc，仅人工填写）",
         "scope": ["zx"], "kind": "core",
     },
     "evidence": {
-        "file": "05-证据目录.docx",
+        "file": "03-证据/证据目录.docx",
         "src": "证据目录.docx",
         "title": "证据目录",
         "scope": ["sp", "zx"], "kind": "core",
     },
     "evidence_detail": {
-        "file": "05-证据目录及说明.docx",
+        "file": "03-证据/证据目录及说明.docx",
         "src": "证据目录及说明（适用于各类案件）.docx",
         "title": "证据目录及说明",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "evidence_detailed": {
-        "file": "05-证据材料清单-详细.docx",
+        "file": "03-证据/证据材料清单（详细）.docx",
         "src": "（详细）证据清单.docx",
         "title": "诉讼当事人提交证据材料清单",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "evidence_catalog_doc": {
-        "file": "05-证据目录-旧版.doc",
+        "file": "03-证据/证据目录（旧版）.doc",
         "src": "证据目录模板.doc",
         "title": "证据目录（旧版）",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "authorization": {
-        "file": "06-授权委托书.docx",
+        "file": "04-委托代理/授权委托书（立案用）.docx",
         "src": "法山立案授权委托书.docx",
         "title": "授权委托书（立案用）",
         "scope": ["sp", "zx"], "kind": "core",
     },
     "authorization_company": {
-        "file": "06-授权委托书-单位版.docx",
+        "file": "04-委托代理/授权委托书（单位委托）.docx",
         "src": "授权委托书 - 副本.docx",
         "title": "授权委托书（单位委托）",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "authorization_relative_doc": {
-        "file": "06-授权委托书-亲属版.doc",
+        "file": "04-委托代理/授权委托书（亲属代理）.doc",
         "src": "亲属授权委托书模板.doc",
         "title": "授权委托书（亲属代理）",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "legal_rep": {
-        "file": "06-法定代表人身份证明书.docx",
+        "file": "04-委托代理/法定代表人身份证明书.docx",
         "src": "法定代表人身份证明书1.docx",
         "title": "法定代表人身份证明书",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "material_list_doc": {
-        "file": "11-提交材料清单.doc",
+        "file": "02-立案通用件/立案材料清单.doc",
         "src": "材料清单 (1).doc",
         "title": "立案材料清单",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     # —— 执行 ——
     "enforcement": {
-        "file": "07-强制执行申请书.docx",
+        "file": "07-执行/强制执行申请书.docx",
         "src": "强制执行申请书.docx",
         "title": "强制执行申请书",
         "scope": ["zx"], "kind": "core",
     },
     "enforcement_elements": {
-        "file": "07-强制执行申请书-要素式.docx",
+        "file": "07-执行/强制执行申请书（要素式）.docx",
         "src": "要素式执行.docx",
         "title": "强制执行申请书（申请执行用·要素式）",
         "scope": ["zx"], "kind": "optional",
     },
     "enforcement_close": {
-        "file": "12-执行结案申请书.docx",
+        "file": "07-执行/执行结案申请书.docx",
         "src": "执行结案申请书.docx",
         "title": "执行结案申请书",
         "scope": ["zx"], "kind": "optional",
     },
     "net_inquiry_doc": {
-        "file": "13-网络查控申请书.doc",
+        "file": "05-保全与查控/网络查控申请书.doc",
         "src": "网络查控申请书.doc",
         "title": "网络查控申请书",
         "scope": ["zx"], "kind": "optional",
     },
     # —— 保全 ——
     "preservation": {
-        "file": "14-财产保全申请书.docx",
+        "file": "05-保全与查控/财产保全申请书.docx",
         "src": "财产保全申请书.docx",
         "title": "财产保全申请书",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "preservation_withdraw": {
-        "file": "15-撤回财产保全申请书.docx",
+        "file": "05-保全与查控/撤回财产保全申请书.docx",
         "src": "撤回财产保全申请书.docx",
         "title": "撤回财产保全申请书",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "preservation_clues": {
-        "file": "16-财产保全被告财产线索清单.docx",
+        "file": "05-保全与查控/财产线索清单（保全）.docx",
         "src": "财产保全被告财产线索清单.docx",
         "title": "财产保全被告财产线索清单",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "property_clues": {
-        "file": "16-财产线索清单.docx",
+        "file": "05-保全与查控/财产线索清单.docx",
         "src": "财产线索(1).docx",
         "title": "财产线索",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     # —— 程序性申请 ——
     "mediation": {
-        "file": "17-先行调解申请书.docx",
+        "file": "06-程序性申请/先行调解申请书.docx",
         "src": "先行调解申请书.docx",
         "title": "选择诉前（诉中）先行调解申请书",
         "scope": ["sp"], "kind": "optional",
     },
     "postpone_hearing": {
-        "file": "18-延期开庭申请书.docx",
+        "file": "06-程序性申请/延期开庭申请书.docx",
         "src": "延期开庭申请书.docx",
         "title": "延期开庭申请书",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "online_hearing": {
-        "file": "19-线上开庭申请书.docx",
+        "file": "06-程序性申请/线上开庭申请书.docx",
         "src": "线上开庭申请书(1).docx",
         "title": "线上开庭申请书",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "online_hearing_alt": {
-        "file": "19-线上开庭申请书-简版.docx",
+        "file": "06-程序性申请/线上开庭申请书（简版）.docx",
         "src": "在线开庭书.docx",
         "title": "线上开庭申请书（简版）",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "withdraw_suit_doc": {
-        "file": "20-撤诉申请书.doc",
+        "file": "06-程序性申请/撤诉申请书.doc",
         "src": "撤诉申请书.doc",
         "title": "撤诉申请书",
         "scope": ["sp"], "kind": "optional",
     },
     "add_defendant_doc": {
-        "file": "21-追加被告申请书.doc",
+        "file": "06-程序性申请/追加被告申请书.doc",
         "src": "追加被告申请书.doc",
         "title": "追加被告申请书",
         "scope": ["sp"], "kind": "optional",
     },
     # —— 情况说明 ——
     "statement_general": {
-        "file": "22-情况说明.docx",
+        "file": "08-情况说明/情况说明.docx",
         "src": "情况说明模版.docx",
         "title": "情况说明",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "statement_filing": {
-        "file": "22-立案情况说明.docx",
+        "file": "08-情况说明/立案情况说明.docx",
         "src": "立案情况说明.docx",
         "title": "立案情况说明",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "statement_filing_other": {
-        "file": "22-立案情况说明-补充材料.docx",
+        "file": "08-情况说明/立案情况说明（补充材料）.docx",
         "src": "其他材料-立案情况说明.docx",
         "title": "立案情况说明（补充材料用）",
         "scope": ["sp", "zx"], "kind": "optional",
     },
     "statement_cash": {
-        "file": "22-现金交付情况说明.docx",
+        "file": "08-情况说明/现金交付情况说明.docx",
         "src": "现金情况说明.docx",
         "title": "现金交付情况说明",
         "scope": ["sp"], "kind": "optional",
     },
     # —— 专项 ——
     "debt_transfer": {
-        "file": "23-债权转移确认书.docx",
+        "file": "10-专项（劳务）/债权转移确认书（劳务合同纠纷）.docx",
         "src": "债权转移确认书（劳务合同纠纷专用）.docx",
         "title": "债权转移确认书（劳务合同纠纷）",
         "scope": ["sp"], "kind": "optional",
     },
     "labor_entrust": {
-        "file": "24-劳务欠款纠纷诉讼委托书.docx",
+        "file": "10-专项（劳务）/劳务欠款纠纷诉讼委托书.docx",
         "src": "劳务欠款纠纷诉讼委托书.docx",
         "title": "劳务欠款纠纷诉讼委托书",
         "scope": ["sp"], "kind": "optional",
     },
     "arbitration": {
-        "file": "30-仲裁申请书.docx",
+        "file": "09-仲裁/仲裁申请书.docx",
         "src": "1、仲裁申请书.docx",
         "title": "仲裁申请书",
         "scope": ["sp"], "kind": "optional",
     },
     "arbitration_delivery": {
-        "file": "30-仲裁当事人送达信息确认书.docx",
+        "file": "09-仲裁/当事人送达信息确认书.docx",
         "src": "6、当事人送达信息确认书.docx",
         "title": "当事人送达信息确认书（仲裁立案）",
         "scope": ["sp"], "kind": "optional",
     },
     "evidence_list_arb": {
-        "file": "30-申请人证据材料清单.docx",
+        "file": "09-仲裁/申请人证据材料清单.docx",
         "src": "5、申请人证据材料清单.docx",
         "title": "申请人证据材料清单（仲裁）",
         "scope": ["sp"], "kind": "optional",
     },
     "answer_arb_doc": {
-        "file": "30-答辩书.doc",
+        "file": "09-仲裁/答辩书.doc",
         "src": "7、答辩书.doc",
         "title": "答辩书（仲裁）",
         "scope": ["sp"], "kind": "optional",
     },
     "arbitration_doc": {
-        "file": "30-仲裁模板.doc",
+        "file": "09-仲裁/仲裁申请书（旧版）.doc",
         "src": "仲裁模板.doc",
         "title": "仲裁申请书（旧版）",
         "scope": ["sp"], "kind": "optional",
@@ -377,10 +384,14 @@ def _save_registry(template_dir: Path, registry: Dict[str, Any]) -> None:
     )
 
 
-def source_path(src: str) -> Optional[Path]:
-    """先找脱敏版，再找本机原始包（.doc 只存在于原始包）。"""
-    for base in (ASSETS, RAW_ASSETS):
-        candidate = base / src
+def source_path(src: str, file: str = "") -> Optional[Path]:
+    """先找脱敏版（assets/templates/<分类>/<规范名>），再找本机原始包（_raw/<原文件名>）。
+
+    规范名与分类由 `TEMPLATES[key]["file"]` 决定；_raw 里保留模板包原名，不改动。
+    """
+    candidates = [ASSETS / file] if file else []
+    candidates.append(RAW_ASSETS / src)
+    for candidate in candidates:
         if candidate.is_file() and candidate.stat().st_size > 0:
             return candidate
     return None
@@ -391,13 +402,13 @@ def resolve(key: str) -> Dict[str, Any]:
     if key not in TEMPLATES:
         raise SystemExit(f"未知模板 key：{key}；可用：{', '.join(sorted(TEMPLATES))}")
     tpl = TEMPLATES[key]
-    path = source_path(tpl["src"])
+    path = source_path(tpl["src"], tpl.get("file", ""))
     if path is None:
         raise SystemExit(
-            f"模板缺失：{tpl['src']}（key={key}）。"
+            f"模板缺失：{tpl.get('file') or tpl['src']}（key={key}）。"
             f"请把实战模板包放到 {ASSETS} 或 {RAW_ASSETS}，本技能不再生成替代模板。"
         )
-    sanitized = path.parent == ASSETS
+    sanitized = ASSETS in path.parents
     return {
         "key": key,
         "title": tpl["title"],
@@ -436,6 +447,7 @@ def ensure_template(root: Path, key: str, registry: Dict[str, Any]) -> Dict[str,
     template_dir = root / "通用件" / "模板"
     template_dir.mkdir(parents=True, exist_ok=True)
     target = template_dir / info["file"]
+    target.parent.mkdir(parents=True, exist_ok=True)
     src = info["path"]
     src_hash = _sha256(src)
     restored = False
@@ -484,7 +496,7 @@ def verify(root: Path, restore: bool = False) -> Dict[str, Any]:
         if not key or key not in TEMPLATES:
             problems.append({"file": file_name, "issue": "登记里 key 无效", "key": key})
             continue
-        src = source_path(TEMPLATES[key]["src"])
+        src = source_path(TEMPLATES[key]["src"], TEMPLATES[key].get("file", ""))
         if src is None:
             problems.append({"file": file_name, "issue": "源模板缺失", "key": key})
             continue
@@ -528,7 +540,7 @@ def main() -> int:
             raise SystemExit("--unlock 需要 --root")
         template_dir = Path(args.root).resolve() / "通用件" / "模板"
         count = 0
-        for path in template_dir.glob("*"):
+        for path in template_dir.rglob("*"):
             if path.is_file() and path.name != "来源登记.json":
                 _unlock(path)
                 count += 1
