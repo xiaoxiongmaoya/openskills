@@ -107,7 +107,7 @@ python scripts/auto_search.py ingest-all --case-dir <目录> --refresh
 
 ```json
 {"success": true, "results": {"document": [
-  {"scid": "...", "title": "...", "case_number": "（2025）浙1022民初1186号",
+  {"scid": "...", "title": "...", "case_number": "（2025）浙0000民初1号",
    "court_name": "三门县人民法院", "province": "浙江", "decision_date": 20250730,
    "case_category": "民事案件", "document_type": "判决书", "content": "...", "url": "..."}
 ]}}

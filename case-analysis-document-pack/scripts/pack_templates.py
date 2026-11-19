@@ -154,8 +154,6 @@ RULES: List[Tuple[str, re.Pattern, Callable[[re.Match], str]]] = [
     # 一般日期（落款、开庭时间等）：2025年 月 日 / 2026年7月1日
     ("日期", re.compile(r"\d{4}\s*年\s*(?:\d{1,2}\s*月\s*\d{1,2}\s*日|月\s*日)"),
      lambda m: "{{日期}}"),
-    ("案由", re.compile(r"(?:民间借贷|买卖合同|劳务合同|服务合同|建设工程施工合同|机动车交通事故责任|"
-                        r"租赁合同|承揽合同|劳动争议|追偿权|不当得利|离婚|继承)纠纷"), lambda m: "{{案由}}"),
     ("微信号", re.compile(r"wxid_[A-Za-z0-9_\-]{4,}"), lambda m: "{{微信号}}"),
     ("民族", re.compile(r"(民族[：:]\s*)(?:汉|回|满|藏|维吾尔|壮|苗|彝|土家|蒙古|布依|侗|朝鲜|其他)族?"),
      lambda m: m.group(1) + "{{民族}}"),
@@ -355,6 +353,11 @@ def _sanitize_xml(xml: str, stats: Dict[str, int], filename: str = "") -> str:
 def sanitize_docx(src: Path, dst: Path) -> Dict[str, int]:
     stats: Dict[str, int] = {}
     dst.parent.mkdir(parents=True, exist_ok=True)
+    if dst.exists():  # 目标可能被设成只读，先解锁再写
+        try:
+            dst.chmod(0o666)
+        except OSError:
+            pass
     with zipfile.ZipFile(src) as zin, zipfile.ZipFile(dst, "w", zipfile.ZIP_DEFLATED) as zout:
         for item in zin.infolist():
             data = zin.read(item.filename)
@@ -398,7 +401,11 @@ def cmd_sanitize(raw: Path, out: Path) -> int:
             skipped.append(src.name)
             continue
         dst = out / src.name
-        stats = sanitize_docx(src, dst)
+        try:
+            stats = sanitize_docx(src, dst)
+        except PermissionError:
+            skipped.append(f"{src.name}（文件被占用，跳过）")
+            continue
         for k, v in stats.items():
             total[k] = total.get(k, 0) + v
         manifest["templates"][src.name] = {

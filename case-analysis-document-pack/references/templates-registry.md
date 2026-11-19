@@ -89,8 +89,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 
 | key | 本地规范名 | 原包文件 | 用途 |
 | --- | --- | --- | --- |
-| `complaint_ordinary` | `01-民事起诉状-普通版.doc` | 诉状模板(1)(1).doc | 普通版起诉状（旧格式，人工填写） |
-| `complaint_elements_loan` | `02-要素式起诉状-民间借贷.docx` | 新借贷模板.docx | 借贷案由要素式 |
+| `complaint_elements_loan` | `02-要素式起诉状-民间借贷.docx` | 新借贷模板.docx | 借贷案由要素式（标题自带案由） |
 | `complaint_elements_traffic` | `02-要素式起诉状-机动车交通事故.docx` | 机动车交通事故责任纠纷起诉状.docx | 交通事故案由要素式 |
 | `complaint_elements_sale` | `02-要素式起诉状-买卖合同.doc` | 新买卖要素式.doc | 买卖案由要素式（旧格式） |
 | `delivery` | `03-送达地址确认书.docx` | 送达地址确认书.docx（最高法版） | 送达地址确认 |

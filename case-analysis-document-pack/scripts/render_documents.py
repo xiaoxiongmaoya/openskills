@@ -404,11 +404,16 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         }
 
     def complaint_key() -> str:
-        if fmt == "elements":
-            picked = mt.complaint_template(str(meta.get("cause") or ""))
-            if picked:
-                return picked
-        return "complaint_ordinary"
+        """诉状只按案由取模板：模板标题自带案由，不再用通用版/普通版兜底。"""
+        cause = str(meta.get("cause") or "")
+        picked = mt.complaint_template(cause)
+        if not picked:
+            raise SystemExit(
+                f"案由「{cause or '未识别'}」没有对应的诉状模板。"
+                f"可用模板见 manage_templates.py --list（complaint_elements_*），"
+                f"新增案由请把模板放进 assets/templates 并登记。"
+            )
+        return picked
 
     if case_type == "zx":
         add("强制执行申请书", "enforcement", "01-强制执行申请书", "强制执行申请书", [
@@ -427,8 +432,8 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         key = complaint_key()
         label = "要素式起诉状" if key.startswith("complaint_elements") else "起诉状"
         tpl_file = Path(mt.ensure_template(root, key, registry)["file"])
-        complaint_stem = "01-起诉状-普通版" if fmt != "elements" else "01-起诉状-要素式"
-        if find_placeholders(tpl_file):
+        complaint_stem = "01-起诉状"
+        if zipfile.is_zipfile(tpl_file) and find_placeholders(tpl_file):
             # 通用占位符模板：直接填，保留原文版式，无值留空
             add_filled(label, key, complaint_stem, "民事起诉状")
         else:

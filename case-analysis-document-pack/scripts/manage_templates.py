@@ -44,14 +44,6 @@ SOURCE_LABEL = "本地实战模板包（律师实务，已脱敏）"
 # key -> 登记项。file 为本地规范名（落 通用件/模板/），src 为模板包内的原始文件名。
 TEMPLATES: Dict[str, Dict[str, Any]] = {
     # —— 起诉 / 答辩 ——
-    "complaint_ordinary": {
-        # 通用占位符版：保留实战 doc 的全部版式与栏目文字，只把可变信息做成占位符，
-        # 填充时“有什么写什么、没有的留空”，不随个案改模板结构。
-        "file": "01-民事起诉状-普通版.docx",
-        "src": "民事起诉状-通用版.docx",
-        "title": "民事起诉状（普通版·通用占位符）",
-        "scope": ["sp"], "kind": "core",
-    },
     "complaint_elements_loan": {
         "file": "02-要素式起诉状-民间借贷.docx",
         "src": "新借贷模板.docx",
@@ -554,7 +546,7 @@ def main() -> int:
 
     needs: List[str] = list(args.need or DEFAULT_NEEDS[args.case_type])
     if args.case_type == "sp":
-        picked = complaint_template(args.cause) if args.cause else "complaint_ordinary"
+        picked = complaint_template(args.cause) if args.cause else None
         if picked and picked not in needs:
             needs.insert(0, picked)
 
