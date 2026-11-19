@@ -125,9 +125,17 @@ def _tracked_paths() -> List[Path]:
     return [REPO / line.strip() for line in raw.splitlines() if line.strip()]
 
 
+def _rel(path: Path) -> str:
+    try:
+        return str(path.resolve().relative_to(REPO))
+    except ValueError:
+        return str(path)
+
+
 def scan(paths: List[Path], names: List[str]) -> List[Dict[str, object]]:
     hits: List[Dict[str, object]] = []
     for path in _scannable(paths):
+        path = path.resolve() if path.is_absolute() else (REPO / path).resolve()
         text = _read_text(path)
         if not text:
             continue
@@ -142,12 +150,12 @@ def scan(paths: List[Path], names: List[str]) -> List[Dict[str, object]]:
                         x in value for x in ("0000", "0100", "0123", "1234", "示例")):
                     continue  # 占位法院代码/“示例”字样，明显不是真案号
                 line_no = text.count("\n", 0, match.start()) + 1
-                hits.append({"file": str(path.relative_to(REPO)), "line": line_no,
+                hits.append({"file": _rel(path), "line": line_no,
                              "type": label, "value": value})
         for name in names:
             idx = text.find(name)
             if idx >= 0:
-                hits.append({"file": str(path.relative_to(REPO)),
+                hits.append({"file": _rel(path),
                              "line": text.count("\n", 0, idx) + 1,
                              "type": "真实当事人姓名", "value": name})
     # 同一文件同一行同一类型去重
@@ -190,7 +198,10 @@ def main() -> int:
     elif hits:
         print("红线拦截：以下位置含真实当事人信息，禁止提交/写入文档", file=sys.stderr)
         for h in hits:
-            print(f"  {h['file']}:{h['line']}  [{h['type']}] {h['value']}", file=sys.stderr)
+            value = str(h["value"])
+            shown = value if h["type"] in ("真实当事人姓名",) else (
+                value[:2] + "*" * max(len(value) - 4, 1) + value[-2:])
+            print(f"  {h['file']}:{h['line']}  [{h['type']}] {shown}", file=sys.stderr)
         print("改法：姓名→张三/李四，身份证→110101199001010000，"
               "手机→13800000000，银行卡→123456789012345678，案号→（年份）法院代字民初序号号",
               file=sys.stderr)
