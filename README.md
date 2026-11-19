@@ -11,6 +11,7 @@
 | 技能 | 说明 |
 | --- | --- |
 | [`court-civil-first-instance-filing`](./court-civil-first-instance-filing/) | 法院民事一审在线立案：登录、建草稿、材料上传、诉请、提交、状态查询 |
+| [`case-analysis-document-pack`](./case-analysis-document-pack/) | 案件分析与立案材料包：聊天记录解析、法律关系分析、确认后按本地实战模板生成整套可打印签字文书 |
 
 ## 结构约定
 

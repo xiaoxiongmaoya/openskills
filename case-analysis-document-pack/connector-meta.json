@@ -1,0 +1,22 @@
+{
+  "name": "case-analysis-document-pack",
+  "name_zh": "案件分析与立案材料包",
+  "name_en": "Case Analysis & Filing Document Pack",
+  "description": "分析案件材料并生成整套可打印签字的立案文书；不登录、不上传、不提交。",
+  "description_zh": "以法律关系分析法两阶段五步骤为核心，结合华宇元典法规与类案检索，输出带来源标注的案件分析报告；律师确认后才询问普通/要素式诉状并生成整套 Word 材料包。",
+  "description_en": "Analyze case materials with source-linked legal-relationship analysis and Yuandian legal/case retrieval, then generate a complete printable Word filing pack after lawyer confirmation. Never logs in, uploads, or submits.",
+  "source": "case-analysis-document-pack",
+  "type": "skill-only",
+  "version": "1.0.0",
+  "minWorkbuddyVersion": "4.24.0",
+  "examples_zh": [
+    "分析这些微信聊天记录，整理法律关系和证据",
+    "根据聊天记录生成民间借贷案件的起诉状和整套立案材料",
+    "申请强制执行，生成强制执行申请书和账户确认书"
+  ],
+  "examples_en": [
+    "Analyze these chat records and map the legal relationships",
+    "Draft a civil complaint and the full filing document pack",
+    "Prepare an enforcement application pack"
+  ]
+}
