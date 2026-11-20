@@ -78,15 +78,6 @@ EXTRA_DEFAULT_APPLY: Dict[str, str] = {
     "mediation": "请求对本案先行调解。",
 }
 
-# 只陈述法律程式、不涉及个案事实的默认理由。写了也不编造事实，仅交代法律依据。
-# 因人而异的（延期开庭的具体事由、撤诉原因、追加被告的理由）一律不设默认，留空等律师写。
-EXTRA_DEFAULT_REASON: Dict[str, str] = {
-    "preservation": "为防止被申请人转移、隐匿财产，致使将来生效裁判难以执行，"
-                    "申请人依照《中华人民共和国民事诉讼法》关于财产保全的规定，"
-                    "申请对被申请人的财产采取保全措施。",
-    "net_inquiry_doc": "为查明被执行人的财产状况、便于本案执行，"
-                       "申请通过网络执行查控系统查询其名下财产。",
-}
 
 
 import re  # noqa: E402
@@ -987,9 +978,8 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
                     amt = ""
                 ov["申请事项"] = EXTRA_DEFAULT_APPLY[key].replace("{N}", amt or "相应")
             # 事由必须回答「为什么提这个申请」，不能拿诉状案情复述顶替（会答非所问）。
-            # 优先用本申请专属内容；只陈述法律程式的给标准理由；因人而异的留空等律师写。
-            reason = (ov.get("事实与理由") or ov.get("情况说明")
-                      or EXTRA_DEFAULT_REASON.get(key, ""))
+            # 一律不给默认理由：模型/律师没写就留空，由清单提示补写，脚本不代编。
+            reason = ov.get("事实与理由") or ov.get("情况说明") or ""
             ov["事实与理由"] = reason
             ov["情况说明"] = ov.get("情况说明") or reason
             if not reason:
@@ -1026,8 +1016,12 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             lines.append(f"- 【需手工加行】{doc['name']}表格行数不够，"
                          f"还有 {doc['evidence_overflow']} 条证据未填，请复制行补齐")
     if missing_reason:
-        lines.append("- 【需补写事由】" + "、".join(missing_reason)
-                     + "：正文「事实与理由」需按案情写明，脚本不代编")
+        # 只提示实际生成出来的（模板缺失被跳过的就不用再提）
+        done = {d.get("name") for d in docs}
+        todo = [n for n in missing_reason if n in done]
+        if todo:
+            lines.append("- 【需补写事由】" + "、".join(todo)
+                         + "：正文「事实与理由」需按案情写明，脚本不代编")
     guides = [d for d in docs if d.get("fill_guide")]
     if guides:
         lines += ["", "## 旧版 .doc 模板：需人工填写"]
