@@ -16,6 +16,15 @@ category: "writing"
 version: "1.1.0"
 
 author: "case-assistant"
+
+examples_zh:
+- "分析这些微信聊天记录，整理法律关系和证据"
+- "根据聊天记录生成民间借贷案件的起诉状和整套立案材料"
+- "申请强制执行，生成强制执行申请书和账户确认书"
+examples_en:
+- "Analyze these chat records and map the legal relationships"
+- "Draft a civil complaint and the full filing document pack"
+- "Prepare an enforcement application pack"
 ---
 
 # 案件分析与立案材料包

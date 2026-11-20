@@ -16,6 +16,17 @@ category: "writing"
 version: "1.5.2"
 
 author: "court-assistant"
+
+examples_zh:
+- "登录我的法院诉讼服务平台账号，准备立一个民事一审案"
+- "帮我起草一起民间借贷纠纷的民事一审立案材料"
+- "凭生效判决书申请强制执行"
+- "查询我刚提交的立案申请当前状态"
+examples_en:
+- "Log in to my court litigation service account to prepare a civil first-instance filing"
+- "Draft civil first-instance filing materials for a loan dispute"
+- "File an enforcement application based on an effective judgment"
+- "Query the current status of my just-submitted filing"
 ---
 
 # 法院民事一审在线立案 + 强制执行申请
