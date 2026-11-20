@@ -29,10 +29,9 @@ Thumbs.db
 captcha.png
 **/captcha.png
 
-# 实战模板原始包（含真实当事人姓名/证件号，禁止入库）
+# 原始 .doc 模板（可能含真实当事人信息，禁止入库）
+# 实战模板统一用 assets/templates/ 下的脱敏 .docx
+*.doc
 
 # Office 临时锁文件
 ~$*
-
-# 原始 .doc 模板（含真实当事人信息，禁止入库）
-case-analysis-document-pack/_raw_doc/
