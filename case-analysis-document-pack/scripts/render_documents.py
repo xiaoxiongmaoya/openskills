@@ -144,34 +144,37 @@ def _has_lawyer_fee_evidence(case_dir: Path) -> bool:
     return False
 
 
-def build_fields(case_dir: Path) -> Dict[str, str]:
-    state = case_dir / "05案件信息"
-    analysis = _load(state / "analysis.json")
-    chat = _load(state / "chat_evidence.json")
-    spec = _load(state / "spec.json")
-    confirm = _load(state / "analysis_confirm.json")
-    findings = (analysis.get("agent_findings") or {}) if isinstance(analysis, dict) else {}
-    summary = findings.get("case_summary") or {}
-    if not isinstance(summary, dict):
-        summary = {}
+def real(value: Any, fallback: str = "") -> str:
+    """说明性文字（如“已提供”“待补…”）视为无真实值。"""
+    text = str(value or "").strip()
+    if not text or text.startswith("已提供") or text.startswith("待补") or "见01原始包" in text:
+        return fallback
+    return text
 
-    def from_spec(key: str, default: str = "（待补充）") -> str:
-        value = spec.get(key)
-        if isinstance(value, dict):
-            return str(value.get("name") or value.get("value") or default)
-        return str(value or default)
 
-    plaintiff = str(summary.get("plaintiff") or from_spec("plaintiff"))
-    defendant = str(summary.get("defendant") or from_spec("defendant"))
-    cause = str(summary.get("cause") or (spec.get("case") or {}).get("cause") or "（待确认）")
-    amount = str(summary.get("amount") or (spec.get("case") or {}).get("amount") or "（待确认）")
-    court = str(summary.get("court") or "（待确认，管辖由律师确认）")
-    # 诉状「此致」栏只写法院名，剥掉“（被告住所地，德阳广汉）”这类内部说明
-    court = re.sub(r"[（(][^（）()]*[)）]\s*$", "", court).strip() or court
+def _id_birth(value: Any) -> str:
+    """从 18 位身份证号推出生日期；推不出留空。"""
+    text = str(value or "").strip()
+    if len(text) == 18 and text[:17].isdigit():
+        return f"{text[6:10]}年{int(text[10:12])}月{int(text[12:14])}日"
+    return ""
 
-    # 诉讼请求：骨架由规则固定生成，保证每次出稿措辞一致（Agent 不再手写正文）。
-    # findings.claims 只用于补充规则未覆盖的额外请求，不覆盖骨架措辞。
-    raw_claims = summary.get("claims") or (spec.get("claims") or {}).get("ssqq") or []
+
+def _id_gender(value: Any) -> str:
+    """从 18 位身份证号推性别；推不出留空。"""
+    text = str(value or "").strip()
+    if len(text) == 18 and text[16].isdigit():
+        return "男" if int(text[16]) % 2 else "女"
+    return ""
+
+
+def _build_claims(case_dir: Path, cause: str, amount: str,
+                  raw_claims: Any) -> tuple[str, List[str]]:
+    """诉讼请求：骨架由规则固定生成，保证每次出稿措辞一致（Agent 不再手写正文）。
+
+    raw_claims 只用于补充规则未覆盖的额外请求，不覆盖骨架措辞。
+    返回 (整段文本, 分条列表)。
+    """
     if isinstance(raw_claims, str):
         extra_candidates = [c.strip() for c in re.split(r"[\n；;]", raw_claims) if c.strip()]
     elif isinstance(raw_claims, list):
@@ -194,28 +197,30 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
             claim_items.append(c)
 
     # 前 n-1 条用分号，最后一条用句号；编号统一重排
-    cleaned_claims = [c.rstrip("；;。") for c in claim_items if c.strip()]
-    claim_text = "\n".join(
-        f"{i}. {c}{'；' if i < len(cleaned_claims) else '。'}"
-        for i, c in enumerate(cleaned_claims, 1)
-    )
-    # 兼容读取分条的模板占位符（{{诉讼请求1}}/{{诉讼请求2}}…）
+    cleaned = [c.rstrip("；;。") for c in claim_items if c.strip()]
     claim_parts = [
-        f"{i}. {c}{'；' if i < len(cleaned_claims) else '。'}"
-        for i, c in enumerate(cleaned_claims, 1)
+        f"{i}. {c}{'；' if i < len(cleaned) else '。'}"
+        for i, c in enumerate(cleaned, 1)
     ]
+    return "\n".join(claim_parts), claim_parts
 
-    # 事实与理由：由 facts 自动串成叙事段，剔除内部来源/置信度标注；无事实则留空。
-    facts = analysis.get("facts") or []
+
+def _build_narrative(analysis: Dict[str, Any]) -> str:
+    """事实与理由：由 facts 自动串成叙事段，剔除内部来源/置信度标注；无事实则留空。"""
     narrative: List[str] = []
-    for fact in facts[:40]:
+    for fact in (analysis.get("facts") or [])[:40]:
         text = str(fact.get("text") or "").strip()
         if text:
             narrative.append(text if text.endswith(("。", "；", "！")) else text + "。")
-    facts_text = "".join(narrative) or ""
+    return "".join(narrative) or ""
 
-    # 证据清单：优先用证据包（evidence_package.json）的「证明目的」写成正式目录条目；
-    # 没有证据包时才回落聊天来源文件。原始文件名（企业微信图片_2026…jpg）不进正式目录。
+
+def _build_evidence_text(case_dir: Path, chat: Dict[str, Any],
+                         findings: Dict[str, Any]) -> str:
+    """证据清单：优先用证据包（evidence_package.json）的「证明目的」写成正式目录条目；
+
+    没有证据包时才回落聊天来源文件。原始文件名（企业微信图片_2026…jpg）不进正式目录。
+    """
     evidence_lines: List[str] = []
     pkg = _load(case_dir / "05案件信息" / "evidence_package.json")
     pkg_entries = [e for e in (pkg.get("entries") or []) if isinstance(e, dict)]
@@ -275,7 +280,39 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
         for item in grid:
             if isinstance(item, dict):
                 evidence_lines.append(f"- {item.get('claim', '')}：{item.get('evidence', '')}")
-    evidence_text = "\n".join(evidence_lines) or ""
+    return "\n".join(evidence_lines) or ""
+
+
+def build_fields(case_dir: Path) -> Dict[str, str]:
+    state = case_dir / "05案件信息"
+    analysis = _load(state / "analysis.json")
+    chat = _load(state / "chat_evidence.json")
+    spec = _load(state / "spec.json")
+    confirm = _load(state / "analysis_confirm.json")
+    findings = (analysis.get("agent_findings") or {}) if isinstance(analysis, dict) else {}
+    summary = findings.get("case_summary") or {}
+    if not isinstance(summary, dict):
+        summary = {}
+
+    def from_spec(key: str, default: str = "（待补充）") -> str:
+        value = spec.get(key)
+        if isinstance(value, dict):
+            return str(value.get("name") or value.get("value") or default)
+        return str(value or default)
+
+    plaintiff = str(summary.get("plaintiff") or from_spec("plaintiff"))
+    defendant = str(summary.get("defendant") or from_spec("defendant"))
+    cause = str(summary.get("cause") or (spec.get("case") or {}).get("cause") or "（待确认）")
+    amount = str(summary.get("amount") or (spec.get("case") or {}).get("amount") or "（待确认）")
+    court = str(summary.get("court") or "（待确认，管辖由律师确认）")
+    # 诉状「此致」栏只写法院名，剥掉“（被告住所地，德阳广汉）”这类内部说明
+    court = re.sub(r"[（(][^（）()]*[)）]\s*$", "", court).strip() or court
+
+    # 诉讼请求/事实与理由/证据清单：骨架由规则生成，措辞脚本统一，Agent 不再手写正文
+    raw_claims = summary.get("claims") or (spec.get("claims") or {}).get("ssqq") or []
+    claim_text, claim_parts = _build_claims(case_dir, cause, amount, raw_claims)
+    facts_text = _build_narrative(analysis)
+    evidence_text = _build_evidence_text(case_dir, chat, findings)
 
     agent = spec.get("agent") or {}
     agent_name = str(summary.get("agent_name") or agent.get("name") or "")
@@ -284,15 +321,14 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
 
     # 当事人真实信息：优先 party_info.json（由材料/OCR 提取并留痕），支持多当事人。
     # case_summary 里常是“已提供”这类说明文字，不能当真值用。
-    import re as _re
     pinfo = pi.load(case_dir)
     main_pl = pinfo.get("primary_plaintiff") or {}
     main_def = pinfo.get("primary_defendant") or {}
     complaint_path = case_dir / "06运行记录" / "complaint_text.json"
     complaint_data = _load(complaint_path) if complaint_path.exists() else {}
     identity = str(complaint_data.get("原告身份信息") or "") if isinstance(complaint_data, dict) else ""
-    id_match = _re.search(r"身份证号[:：]\s*([0-9]{17}[\dXx])", identity) or _re.search(r"([0-9]{17}[\dXx])", identity)
-    phone_match = _re.search(r"联系电话[:：]\s*(1[3-9]\d{9})", identity) or _re.search(r"(?<!\d)(1[3-9]\d{9})(?!\d)", str(summary.get("plaintiff_phone") or ""))
+    id_match = re.search(r"身份证号[:：]\s*([0-9]{17}[\dXx])", identity) or re.search(r"([0-9]{17}[\dXx])", identity)
+    phone_match = re.search(r"联系电话[:：]\s*(1[3-9]\d{9})", identity) or re.search(r"(?<!\d)(1[3-9]\d{9})(?!\d)", str(summary.get("plaintiff_phone") or ""))
     real_id = str(main_pl.get("id") or (id_match.group(1) if id_match else ""))
     real_phone = str(main_pl.get("phone") or (phone_match.group(1) if phone_match else ""))
     delivery_address = str(main_pl.get("address") or "")
@@ -305,13 +341,6 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
             plaintiff = pi.join_names(pinfo["plaintiffs"])
         if pinfo.get("defendants"):
             defendant = pi.join_names(pinfo["defendants"])
-
-    def real(value: Any, fallback: str = "") -> str:
-        """说明性文字（如“已提供”“待补…”）视为无真实值。"""
-        text = str(value or "").strip()
-        if not text or text.startswith("已提供") or text.startswith("待补") or "见01原始包" in text:
-            return fallback
-        return text
 
     mapping = {
         "原告": plaintiff,
@@ -366,18 +395,6 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
     })
 
     # 普通版诉状按当事人分别占位（原告/被告各一套），性别、出生日期可从身份证号推。
-    def _id_birth(value: Any) -> str:
-        text = str(value or "").strip()
-        if len(text) == 18 and text[:17].isdigit():
-            return f"{text[6:10]}年{int(text[10:12])}月{int(text[12:14])}日"
-        return ""
-
-    def _id_gender(value: Any) -> str:
-        text = str(value or "").strip()
-        if len(text) == 18 and text[16].isdigit():
-            return "男" if int(text[16]) % 2 else "女"
-        return ""
-
     for tag, party in (("原告", main_pl), ("被告", main_def)):
         pid = str(party.get("id") or "")
         gender = str(party.get("gender") or _id_gender(pid))
@@ -605,6 +622,52 @@ def _emit(template: Path, target_stem: Path, title: str, paras: List[str],
     return {"file": target, "companion": companion, "mode": "doc_manual_fill"}
 
 
+BLANK_TOKENS = ("（待补充）", "(待补充)", "（待确认）", "(待确认)", "待补充", "待确认",
+                "（待补", "详见事实与理由", "暂无", "（暂无")
+
+
+def clean(value: Any) -> str:
+    """占位文案（待补充/待确认/暂无…）一律视为空，无值留空。"""
+    text = str(value or "").strip()
+    if text in BLANK_TOKENS:
+        return ""
+    # 值是“（待补充）”这类纯占位括号（可带尾部标点）也算空
+    if re.fullmatch(r"[（(]?\s*(待补充|待确认|待补|暂无)\s*[）)]?[\s。；;]*", text):
+        return ""
+    return text
+
+
+def keep(paras: List[str]) -> List[str]:
+    """过滤掉没值的填写行：一行里所有“标签：值”都是占位/空就整行不写。
+
+    保留签名/捺印/盖章行。按“标签：值”逐段解析，值里若夹带下一个标签则正确切开。
+    """
+    # 标签：中文或常见字段名，值：非“：”字符；用 lookahead 在“空格+新标签：”处切断
+    pair_re = re.compile(r"([\u4e00-\u9fa5A-Za-z/（）()]+)[：:]\s*([^：:]*?)(?=\s{2,}[\u4e00-\u9fa5A-Za-z/（）()]+[：:]|$)")
+    out: List[str] = []
+    for p in paras:
+        if not p.strip():
+            continue
+        if any(t in p for t in ("签字", "捺印", "盖章")):
+            out.append(p)
+            continue
+        # 多行正文、或不以「标签：」开头的段落，整段原样保留。
+        # 否则证据清单这类纯文本会被当成「标签：值」解析，只留下含冒号的那一行。
+        if "\n" in p.strip() or not re.match(
+                r"^\s*[\u4e00-\u9fa5A-Za-z/（）()]{1,12}[：:]", p):
+            out.append(p)
+            continue
+        pairs = [(lab.strip(), clean(val)) for lab, val in pair_re.findall(p)]
+        if pairs:
+            kept = [(lab, val) for lab, val in pairs if val]
+            if not kept:
+                continue
+            out.append("    ".join(f"{lab}：{val}" for lab, val in kept))
+        elif clean(p):
+            out.append(p)
+    return out
+
+
 def render(case_dir: Path, case_type: str, only_complaint: bool = False,
            only: set[str] | None = None, skip_image_check: bool = False,
            extra: set[str] | None = None) -> Dict[str, Any]:
@@ -646,62 +709,27 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
     party_counts = (len(_pinfo_all.get("plaintiffs") or []) or 1,
                     len(_pinfo_all.get("defendants") or []) or 1)
 
-    BLANK_TOKENS = ("（待补充）", "(待补充)", "（待确认）", "(待确认)", "待补充", "待确认",
-                    "（待补", "详见事实与理由", "暂无", "（暂无")
+    def _resolve_doc(key: str, name: str):
+        """add/add_filled 共用前置：only 过滤 + 模板解析。
 
-    def clean(value: Any) -> str:
-        import re as _re
-        text = str(value or "").strip()
-        if text in BLANK_TOKENS:
-            return ""
-        # 值是“（待补充）”这类纯占位括号（可带尾部标点）也算空
-        if _re.fullmatch(r"[（(]?\s*(待补充|待确认|待补|暂无)\s*[）)]?[\s。；;]*", text):
-            return ""
-        return text
-
-    def keep(paras: List[str]) -> List[str]:
-        """过滤掉没值的填写行：一行里所有“标签：值”都是占位/空就整行不写。
-
-        保留签名/捺印/盖章行。按“标签：值”逐段解析，值里若夹带下一个标签则正确切开。
+        only 未命中返回 None（静默跳过）；模板文件缺失记入 skipped 也返回 None。
         """
-        import re as _re
-        # 标签：中文或常见字段名，值：非“：”字符；用 lookahead 在“空格+新标签：”处切断
-        pair_re = _re.compile(r"([\u4e00-\u9fa5A-Za-z/（）()]+)[：:]\s*([^：:]*?)(?=\s{2,}[\u4e00-\u9fa5A-Za-z/（）()]+[：:]|$)")
-        out: List[str] = []
-        for p in paras:
-            if not p.strip():
-                continue
-            if any(t in p for t in ("签字", "捺印", "盖章")):
-                out.append(p)
-                continue
-            # 多行正文、或不以「标签：」开头的段落，整段原样保留。
-            # 否则证据清单这类纯文本会被当成「标签：值」解析，只留下含冒号的那一行。
-            if "\n" in p.strip() or not _re.match(
-                    r"^\s*[\u4e00-\u9fa5A-Za-z/（）()]{1,12}[：:]", p):
-                out.append(p)
-                continue
-            pairs = [(lab.strip(), clean(val)) for lab, val in pair_re.findall(p)]
-            if pairs:
-                kept = [(lab, val) for lab, val in pairs if val]
-                if not kept:
-                    continue
-                out.append("    ".join(f"{lab}：{val}" for lab, val in kept))
-            elif clean(p):
-                out.append(p)
-        return out
+        if only is not None and key not in only:
+            return None
+        try:
+            return mt.ensure_template(root, key, registry), mt.resolve(key)
+        except SystemExit:
+            # 模板包缺文件：跳过这一份并记录，不能让整批文书都生成不出来
+            skipped.append({"name": name, "key": key, "reason": "模板文件缺失"})
+            return None
 
     def add(name: str, key: str, out_stem: str, title: str, paras: List[str],
             append_paras: bool = True, overrides: Dict[str, str] | None = None,
             evidence_rows: List[Dict[str, str]] | None = None) -> None:
-        if only is not None and key not in only:
+        got = _resolve_doc(key, name)
+        if got is None:
             return
-        try:
-            entry = mt.ensure_template(root, key, registry)
-            info = mt.resolve(key)
-        except SystemExit:
-            # 模板包缺文件：跳过这一份并记录，不能让整批文书都生成不出来
-            skipped.append({"name": name, "key": key, "reason": "模板文件缺失"})
-            return
+        entry, info = got
         stem = (drafts / out_stem).resolve()
         if drafts.resolve() not in stem.parents:
             raise SystemExit(f"产物必须落在 04未签稿/，拒绝写入：{stem}")
@@ -764,25 +792,21 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         # 无值/占位文案一律留空（含“（待确认，管辖由律师确认）”这类长串）
         blank_tokens = ("（待补充）", "(待补充)", "（待确认）", "(待确认)",
                         "待补充", "待确认", "（待补", "详见事实与理由")
-        clean: Dict[str, str] = {}
+        out: Dict[str, str] = {}
         for k, v in merged.items():
             text = str(v or "").strip()
             if any(text == t or text.startswith(t) for t in blank_tokens):
                 text = ""
-            clean[k] = text
-        return clean
+            out[k] = text
+        return out
 
     def add_filled(name: str, key: str, out_stem: str, title: str,
                    mapping: Dict[str, str] | None = None) -> None:
         """按模板占位符直接填值：保留模板全部原文与版式，不追加重复段落。"""
-        if only is not None and key not in only:
+        got = _resolve_doc(key, name)
+        if got is None:
             return
-        try:
-            entry = mt.ensure_template(root, key, registry)
-            info = mt.resolve(key)
-        except SystemExit:
-            skipped.append({"name": name, "key": key, "reason": "模板文件缺失"})
-            return
+        entry, info = got
         template = Path(entry["file"])
         target = drafts / (out_stem + ".docx")
         if template.suffix.lower() == ".docx" and zipfile.is_zipfile(template):
