@@ -311,10 +311,14 @@ def _clean_empty_tails(xml: str) -> str:
         if not flat.strip():
             return pxml
         new = re.sub(r"[，,]\s*族", "", flat)
+        # 民族值本身已带“族”（汉族），模板里再写一个「族」会变成「汉族族」
+        new = re.sub(r"族{2,}", "族", new)
         new = re.sub(r"定于\s*在", "定于", new)
         new = re.sub(r"[，,]\s*出生(?=[，,。；;\s]|$)", "", new)
         new = re.sub(r"[，,]\s*住(?=[，,。；;\s]|$)", "", new)
         new = re.sub(r"(出生日期|身份证号|联系电话|电话|住址|手机号|地址|民族|性别)[：:]\s*(?=[，,。；;\s]|$)", "", new)
+        # 案号立案后才有，空值时「案号为。」会留下残句
+        new = re.sub(r"[，,]?\s*案\s*号\s*为?\s*(?=[。；;，,])", "", new)
         new = re.sub(r"[，,]{2,}", "，", new)
         new = re.sub(r"[，,]\s*(?=[。；;])", "", new)
         new = re.sub(r"[，,]\s*$", "", new)
