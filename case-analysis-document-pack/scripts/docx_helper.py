@@ -130,11 +130,75 @@ def append_to_docx(path: Path, heading: str, paragraphs: Iterable[str], notice: 
     return path
 
 
+# 实战模板里「申请人」「被申请人」两段常共用同一组无角色占位符（{{地址}}/{{身份证号}}…），
+# 填充时会把原告信息写进被告栏。这几个键需要按段落角色加前缀。
+_ROLE_UNROLED = ("出生日期", "地址", "身份证号", "手机号", "电话", "民族",
+                 "性别", "住所", "联系方式", "微信号")
+
+
+def qualify_role_placeholders(path: Path) -> Path:
+    """把「被申请人/被执行人/被告」段落里的无角色占位符改写成「被告X」。
+
+    模板两段共用 {{地址}} 这类键时，统一取值会导致被申请人栏填进申请人的信息。
+    这里按段落角色给被告段加前缀（{{地址}} -> {{被告地址}}），正文其余部分不动。
+    """
+    import re
+    path = Path(path)
+    if not zipfile.is_zipfile(path):
+        return path
+    entries = _read_entries(path)
+    new_entries = []
+    for info, data in entries:
+        if info.filename != "word/document.xml":
+            new_entries.append((info, data))
+            continue
+        xml = data.decode("utf-8", "ignore")
+
+        def do_para(m: "re.Match") -> str:
+            pxml = m.group(0)
+            flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S))
+            head = flat.strip()
+            # 只处理“被申请人/被执行人/被告”开头的段落；原告段用通用键即可
+            if not re.match(r"^(被申请人|被执行人|被告[：:])", head):
+                return pxml
+            if "{{" not in flat:
+                return pxml
+            new_flat = flat
+            for k in _ROLE_UNROLED:
+                new_flat = new_flat.replace("{{" + k + "}}", "{{被告" + k + "}}")
+            if new_flat == flat:
+                return pxml
+            ppr = re.search(r"<w:pPr>.*?</w:pPr>", pxml, re.S)
+            ppr = ppr.group(0) if ppr else ""
+            runs = re.findall(r"<w:r(?:\s[^>]*)?>.*?</w:r>", pxml, re.S)
+            rpr = ""
+            for r in runs:
+                if "<w:b " in r or "<w:b/" in r:
+                    continue
+                rp = re.search(r"<w:rPr>.*?</w:rPr>", r, re.S)
+                if rp:
+                    rpr = rp.group(0)
+                    break
+            if not rpr and runs:
+                rp = re.search(r"<w:rPr>.*?</w:rPr>", runs[0], re.S)
+                rpr = rp.group(0) if rp else ""
+            body = _esc(new_flat).replace("\n", '</w:t><w:br/><w:t xml:space="preserve">')
+            return f'<w:p>{ppr}<w:r>{rpr}<w:t xml:space="preserve">{body}</w:t></w:r></w:p>'
+
+        xml = re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
+        new_entries.append((info, xml.encode("utf-8")))
+    _write_entries(path, new_entries)
+    return path
+
+
 def fill_placeholders(path: Path, mapping: Dict[str, str], blank_missing: bool = False) -> Path:
     """把 {{key}} 替换为值；blank_missing=True 时，模板里有但 mapping 没给的占位符留空。
 
     默认只替换 mapping 里出现的键，未给出的占位符原样保留（兼容按模板部分填充的场景）。
     文书生成用 blank_missing=True，保证不残留 {{...}}，且无值字段留空。
+
+    实战模板（法院/律所原件）里占位符常被 Word 拆到多个 run，纯 XML 字符串替换会漏掉。
+    这里分两阶段：先做 run 内替换（完整保留原格式），再对残留占位符做段落级合并重建。
     """
     import re
     path = Path(path)
@@ -145,7 +209,9 @@ def fill_placeholders(path: Path, mapping: Dict[str, str], blank_missing: bool =
     for info, data in entries:
         if info.filename == "word/document.xml":
             xml = data.decode("utf-8", "ignore")
-            # 占位符可能被拆到多个 <w:t> run 里：先在文本层合并可见占位符再替换
+            # 多行值（诉请逐条、情况说明分段）先拆成独立段落，再逐段填充
+            xml = _expand_multiline_paragraphs(xml, mapping)
+            # 阶段一：run 内完整出现的占位符，直接换（不动格式）
             flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", xml, re.S))
             keys = set(re.findall(r"\{\{([^}]+)\}\}", flat))
             for key in keys:
@@ -154,14 +220,62 @@ def fill_placeholders(path: Path, mapping: Dict[str, str], blank_missing: bool =
                     if not blank_missing:
                         continue
                     value = ""
-                # 多行值转成 Word 换行（</w:t><w:br/><w:t>），否则 \n 在 w:t 里不会换行
                 value = _esc(str(value)).replace(
                     "\n", '</w:t><w:br/><w:t xml:space="preserve">')
                 xml = xml.replace("{{" + key + "}}", value)
+            # 阶段二：跨 run 的残留占位符，按段落合并文本后重建
+            xml = _fill_split_placeholders(xml, mapping, blank_missing)
             data = xml.encode("utf-8")
         new_entries.append((info, data))
     _write_entries(path, new_entries)
     return path
+
+
+def _fill_split_placeholders(xml: str, mapping: Dict[str, str],
+                             blank_missing: bool) -> str:
+    """处理被 Word 拆到多个 run 的占位符：合并段落可见文本→替换→重建为单 run。
+
+    只重写「确实含残留占位符」的段落，其余段落原样保留，避免无谓的格式损失。
+    """
+    import re
+
+    def do_para(m: "re.Match") -> str:
+        pxml = m.group(0)
+        flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S))
+        toks = re.findall(r"\{\{([^}]+)\}\}", flat)
+        if not toks:
+            return pxml
+        out = flat
+        for key in set(toks):
+            if "{{" + key + "}}" not in out:
+                continue
+            value = mapping.get(key)
+            if value is None:
+                if not blank_missing:
+                    continue
+                value = ""
+            out = out.replace("{{" + key + "}}", str(value))
+        if out == flat:
+            return pxml
+        # 取段落内一个非加粗 run 的 rPr 承载重建文本（加粗通常是标签），保留段落 pPr
+        ppr = re.search(r"<w:pPr>.*?</w:pPr>", pxml, re.S)
+        ppr = ppr.group(0) if ppr else ""
+        runs = re.findall(r"<w:r(?:\s[^>]*)?>.*?</w:r>", pxml, re.S)
+        rpr = ""
+        for r in runs:
+            if "<w:b " in r or "<w:b/" in r:
+                continue
+            rp = re.search(r"<w:rPr>.*?</w:rPr>", r, re.S)
+            if rp:
+                rpr = rp.group(0)
+                break
+        if not rpr and runs:
+            rp = re.search(r"<w:rPr>.*?</w:rPr>", runs[0], re.S)
+            rpr = rp.group(0) if rp else ""
+        body = _esc(out).replace("\n", '</w:t><w:br/><w:t xml:space="preserve">')
+        return f'<w:p>{ppr}<w:r>{rpr}<w:t xml:space="preserve">{body}</w:t></w:r></w:p>'
+
+    return re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
 
 
 def _clean_party_punct(xml: str) -> str:

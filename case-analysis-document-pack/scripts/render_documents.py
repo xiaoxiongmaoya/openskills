@@ -31,7 +31,8 @@ import confirm_gate  # noqa: E402
 import doc_slots  # noqa: E402
 import manage_templates as mt  # noqa: E402
 import party_info as pi  # noqa: E402
-from docx_helper import append_to_docx, fill_complaint_rows, fill_placeholders, find_placeholders, write_docx  # noqa: E402
+from docx_helper import (append_to_docx, fill_complaint_rows, fill_placeholders,  # noqa: E402
+                         find_placeholders, qualify_role_placeholders, write_docx)
 
 SIGN_LINE = "（签字/捺印）：____________    日期：____年__月__日"
 DOC_FILL_NOTICE = "旧版 .doc 模板无法程序化写入：以下为应填写内容，请对照填入 .doc 原件后打印签字。"
@@ -291,12 +292,78 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
         mapping[f"{tag}电话段"] = f"，联系电话：{phone}" if phone else ""
     mapping.setdefault("性别", mapping["原告性别"])
     mapping.setdefault("民族", mapping["原告民族"])
+    # 单值通用键（供执行/保全/情况说明等模板使用），无来源就留空
+    if not mapping.get("出生日期"):
+        mapping["出生日期"] = mapping.get("原告出生日期", "")
+    if not mapping.get("申请事项"):
+        mapping["申请事项"] = mapping.get("执行请求", "") or mapping.get("诉讼请求", "")
+    if not mapping.get("情况说明"):
+        mapping["情况说明"] = mapping.get("事实与理由", "")
+    mapping.setdefault("微信号", "")
     mapping["_meta"] = json.dumps({
         "plaintiff": plaintiff, "defendant": defendant, "case_type": str(confirm.get("case_type") or "sp"),
         "complaint_format": str(confirm.get("complaint_format") or ""), "has_agent": has_agent,
         "court": court, "cause": cause, "amount": amount, "agent": agent_name, "firm": firm,
     }, ensure_ascii=False)
+    _sanitize_fields(mapping, case_dir)
     return mapping
+
+
+# 内部备注/占位文案特征：这类文字绝不能印到交付给法院或当事人的文书上
+_NOTE_MARKERS = ("待律师", "待确认", "待补充", "待补", "见聊天记录", "备案登记",
+                 "需律师", "据类案", "以详情为准", "OCR", "截图", "按规则")
+
+
+def _sanitize_fields(mapping: Dict[str, str], case_dir: Path) -> None:
+    """就地清洗字段：剥掉内部备注、清空占位文案，并用当事人信息重建身份段落。
+
+    实战里 findings 会写“待律师提供（原告身份证号仅见于截图…）”这类内部说明，
+    一旦被模板占位符带进文书就是事故，所以统一在出稿前做一次净化。
+    """
+    def strip_note(text: str) -> str:
+        # 去掉含内部备注关键词的括号说明（全角/半角都处理）
+        def repl(m: "re.Match") -> str:
+            inner = m.group(2)
+            return "" if any(k in inner for k in _NOTE_MARKERS) else m.group(0)
+        return re.sub(r"([（(])([^（）()]*)([)）])", repl, text)
+
+    for k, v in list(mapping.items()):
+        if not isinstance(v, str) or k.startswith("_"):
+            continue
+        text = strip_note(v).strip()
+        # 清洗后只剩占位文案或说明尾巴的，一律留空
+        core = re.sub(r"[（(][^（）()]*[)）]", "", text).strip(" ，,。；;：:")
+        if not core or any(t in core for t in ("见聊天记录", "待补充", "待确认", "待补", "待律师")):
+            text = ""
+        mapping[k] = text
+
+    # 身份段落从 party_info 重建，避免沿用 findings 里的旧备注文字
+    try:
+        pinfo = pi.load(case_dir)
+    except Exception:
+        return
+    for role, key in (("plaintiffs", "原告身份信息"), ("defendants", "被告身份信息")):
+        parts = []
+        for p in (pinfo.get(role) or []):
+            seg = []
+            if p.get("name"):
+                seg.append(str(p["name"]))
+            if p.get("sex"):
+                seg.append(str(p["sex"]))
+            if p.get("nation"):
+                seg.append(f"{p['nation']}族")
+            if p.get("birth"):
+                seg.append(f"{p['birth']}出生")
+            if p.get("address"):
+                seg.append(f"住{str(p['address'])}")
+            if p.get("id"):
+                seg.append(f"身份证号：{p['id']}")
+            if p.get("phone"):
+                seg.append(f"联系电话：{p['phone']}")
+            if seg:
+                parts.append("，".join(seg))
+        if parts:
+            mapping[key] = "；".join(parts)
 
 
 def _meta(fields: Dict[str, str]) -> Dict[str, Any]:
@@ -304,10 +371,11 @@ def _meta(fields: Dict[str, str]) -> Dict[str, Any]:
 
 
 def _emit(template: Path, target_stem: Path, title: str, paras: List[str],
-          fields: Dict[str, str]) -> Dict[str, Any]:
+          fields: Dict[str, str], append_paras: bool = True) -> Dict[str, Any]:
     """按模板扩展名选择注入方式，返回实际落盘信息。
 
     硬规矩：模板只读，任何写入只发生在传进来的副本路径上。
+    append_paras=False：模板已用占位符承载正文时不再追加「填写内容」段落，避免正文重复。
     """
     target_stem = target_stem.resolve()
     template = template.resolve()
@@ -318,7 +386,10 @@ def _emit(template: Path, target_stem: Path, title: str, paras: List[str],
         target = target_stem.with_suffix(".docx")
         shutil.copyfile(template, target)
         try:
-            append_to_docx(target, "填写内容（可打印签字）", paras)
+            # 先把被告段的无角色占位符改成被告专用键，避免把原告信息填进被告栏
+            qualify_role_placeholders(target)
+            if append_paras:
+                append_to_docx(target, "填写内容（可打印签字）", paras)
             fill_placeholders(target, fields, blank_missing=True)
         except Exception as exc:  # 模板结构异常：保留原件，填写内容另出
             companion = target_stem.with_name(target_stem.name + "-填写内容.docx")
@@ -364,6 +435,7 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
     drafts.mkdir(parents=True, exist_ok=True)
 
     docs: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, str]] = []
 
     BLANK_TOKENS = ("（待补充）", "(待补充)", "（待确认）", "(待确认)", "待补充", "待确认",
                     "（待补", "详见事实与理由", "暂无", "（暂无")
@@ -403,15 +475,22 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
                 out.append(p)
         return out
 
-    def add(name: str, key: str, out_stem: str, title: str, paras: List[str]) -> None:
+    def add(name: str, key: str, out_stem: str, title: str, paras: List[str],
+            append_paras: bool = True) -> None:
         if only is not None and key not in only:
             return
-        entry = mt.ensure_template(root, key, registry)
-        info = mt.resolve(key)
+        try:
+            entry = mt.ensure_template(root, key, registry)
+            info = mt.resolve(key)
+        except SystemExit:
+            # 模板包缺文件：跳过这一份并记录，不能让整批文书都生成不出来
+            skipped.append({"name": name, "key": key, "reason": "模板文件缺失"})
+            return
         stem = (drafts / out_stem).resolve()
         if drafts.resolve() not in stem.parents:
             raise SystemExit(f"产物必须落在 04未签稿/，拒绝写入：{stem}")
-        emitted = _emit(Path(entry["file"]), stem, title, keep(paras), fields)
+        emitted = _emit(Path(entry["file"]), stem, title, keep(paras), fields,
+                        append_paras=append_paras)
         item = {
             "name": name,
             "file": f"04未签稿/{emitted['file'].name}",
@@ -471,8 +550,12 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         """按模板占位符直接填值：保留模板全部原文与版式，不追加重复段落。"""
         if only is not None and key not in only:
             return
-        entry = mt.ensure_template(root, key, registry)
-        info = mt.resolve(key)
+        try:
+            entry = mt.ensure_template(root, key, registry)
+            info = mt.resolve(key)
+        except SystemExit:
+            skipped.append({"name": name, "key": key, "reason": "模板文件缺失"})
+            return
         template = Path(entry["file"])
         target = drafts / (out_stem + ".docx")
         if template.suffix.lower() == ".docx" and zipfile.is_zipfile(template):
@@ -565,7 +648,7 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             f"## 执行请求\n{fields['执行请求']}",
             f"## 事实与理由\n{fields['事实与理由']}",
             f"此致 {fields['受理法院']}", SIGN_LINE,
-        ])
+        ], append_paras=False)
         if not only_complaint:
             add("收款账户确认书", "payee_account", "06-收款账户确认书", "收款账户确认书", [
                 f"申请执行人/领款人：{fields['申请执行人']}",
@@ -634,7 +717,7 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
                 f"## 委托事项\n{fields['委托事项']}",
                 f"## 代理权限\n{fields['代理权限']}",
                 f"委托人{SIGN_LINE}    受托人（签字）：____________",
-            ])
+            ], append_paras=False)
 
     mt._save_registry(template_dir, registry)
 
@@ -684,13 +767,19 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         "submission_checklist": f"04未签稿/{checklist.name}",
         "template_registry": str(template_dir / "来源登记.json"),
         "has_agent": bool(meta.get("has_agent")),
+        "skipped": skipped,
     }
+    if skipped:
+        lines = [f"- ⚠ 模板缺失未生成：{s['name']}（{s['key']}）" for s in skipped]
+        checklist.write_text("\n".join(lines) + "\n\n" + checklist.read_text(encoding="utf-8"),
+                             encoding="utf-8")
     out = case_dir / "05案件信息" / "document_manifest.json"
     out.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
     return {
         "ok": True,
         "manifest": str(out),
         "documents": [d["file"] for d in docs],
+        "skipped": skipped,
         "checklist": f"04未签稿/{checklist.name}",
     }
 
