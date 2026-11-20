@@ -37,6 +37,45 @@ from docx_helper import (append_to_docx, fill_complaint_rows, fill_placeholders,
 SIGN_LINE = "（签字/捺印）：____________    日期：____年__月__日"
 DOC_FILL_NOTICE = "旧版 .doc 模板无法程序化写入：以下为应填写内容，请对照填入 .doc 原件后打印签字。"
 
+# 按需文书（SKILL.md 的「可选」清单）：模板 key -> (输出文件名, 文书标题, 是否追加填写段)
+# 追加与否取决于模板是否自带正文占位符；自带就只填不追加，空白模板才追加。
+EXTRA_DOCS: Dict[str, tuple] = {
+    "preservation": ("07-财产保全申请书", "财产保全申请书", False),
+    "preservation_withdraw": ("08-撤回财产保全申请书", "撤回财产保全申请书", False),
+    "postpone_hearing": ("09-延期开庭申请书", "延期开庭申请书", False),
+    # 下面几份是法院一页式空白表格，正文由律师按表格手填，追加段落只会重复
+    "online_hearing": ("10-线上开庭申请书", "线上开庭申请书", False),
+    "withdraw_suit_doc": ("11-撤诉申请书", "撤诉申请书", True),
+    "add_defendant_doc": ("12-追加被告申请书", "追加被告申请书", True),
+    "enforcement_close": ("13-执行结案申请书", "执行结案申请书", False),
+    "net_inquiry_doc": ("14-网络查控申请书", "网络查控申请书", True),
+    "mediation": ("15-先行调解申请书", "先行调解申请书", False),
+    "statement_general": ("16-情况说明", "情况说明", False),
+    "statement_filing": ("17-立案情况说明", "立案情况说明", False),
+    "statement_cash": ("18-现金交付情况说明", "现金交付情况说明", False),
+    "debt_transfer": ("19-债权转移确认书", "债权转移确认书", False),
+    "labor_entrust": ("20-劳务诉讼委托书", "劳务欠款纠纷诉讼委托书", False),
+}
+
+# 一页式空白表格：输出原件，正文由律师手填，清单里明确提示
+EXTRA_HAND_FILL = {"online_hearing", "mediation", "debt_transfer", "labor_entrust"}
+
+# extra_docs.json 里允许按文书覆盖的正文槽
+EXTRA_CONTENT_KEYS = ("申请事项", "事实与理由", "情况说明", "执行请求", "执行依据")
+
+# 有固定程式的按需文书：给了默认申请事项，避免把“判令支付”这类诉请误填进保全/执行申请。
+# 需要个案表述的（延期开庭、撤诉、情况说明等）不设默认，一律由 extra_docs.json 提供。
+EXTRA_DEFAULT_APPLY: Dict[str, str] = {
+    "preservation": "请求依法查封、扣押或冻结被申请人名下价值{N}的财产，保全费用由被申请人承担。",
+    "preservation_withdraw": "请求撤回本案财产保全申请。",
+    "enforcement_close": "请求对本案执行程序作结案处理。",
+    "postpone_hearing": "请求延期开庭审理本案。",
+    "online_hearing": "请求准许申请人以线上方式参加本案庭审。",
+    "withdraw_suit_doc": "请求准许撤回本案起诉。",
+    "net_inquiry_doc": "请求依法查询被申请人名下财产。",
+    "mediation": "请求对本案先行调解。",
+}
+
 
 import re  # noqa: E402
 
@@ -453,7 +492,8 @@ def _emit(template: Path, target_stem: Path, title: str, paras: List[str],
 
 
 def render(case_dir: Path, case_type: str, only_complaint: bool = False,
-           only: set[str] | None = None, skip_image_check: bool = False) -> Dict[str, Any]:
+           only: set[str] | None = None, skip_image_check: bool = False,
+           extra: set[str] | None = None) -> Dict[str, Any]:
     case_dir = case_dir.resolve()
     # 图片体检放最前：先确保材料看全了，再谈确认和生成
     if not skip_image_check:
@@ -530,7 +570,7 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         return out
 
     def add(name: str, key: str, out_stem: str, title: str, paras: List[str],
-            append_paras: bool = True) -> None:
+            append_paras: bool = True, overrides: Dict[str, str] | None = None) -> None:
         if only is not None and key not in only:
             return
         try:
@@ -543,8 +583,8 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         stem = (drafts / out_stem).resolve()
         if drafts.resolve() not in stem.parents:
             raise SystemExit(f"产物必须落在 04未签稿/，拒绝写入：{stem}")
-        emitted = _emit(Path(entry["file"]), stem, title, keep(paras), fields,
-                        append_paras=append_paras)
+        emitted = _emit(Path(entry["file"]), stem, title, keep(paras),
+                        {**fields, **(overrides or {})}, append_paras=append_paras)
         item = {
             "name": name,
             "file": f"04未签稿/{emitted['file'].name}",
@@ -773,6 +813,36 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
                 f"委托人{SIGN_LINE}    受托人（签字）：____________",
             ], append_paras=False)
 
+    # 按需文书：财产保全/延期开庭/撤诉/追加被告/执行结案/情况说明等。
+    # 正文一律由 `06运行记录/extra_docs.json` 里按 key 提供，脚本不编造申请事由。
+    if extra:
+        extra_src = _load(case_dir / "06运行记录" / "extra_docs.json")
+        if not isinstance(extra_src, dict):
+            extra_src = {}
+        for key in extra:
+            spec = EXTRA_DOCS.get(key)
+            if not spec:
+                skipped.append({"name": key, "key": key, "reason": "未登记该文书"})
+                continue
+            out_stem, title, append_paras = spec
+            ov = extra_src.get(key) or {}
+            ov = {k: v for k, v in ov.items()
+                  if k in EXTRA_CONTENT_KEYS and isinstance(v, str) and v.strip()}
+            # 申请事项：优先后台提供，其次按文书类型的固定程式生成；都没有就留空
+            if not ov.get("申请事项") and EXTRA_DEFAULT_APPLY.get(key):
+                try:
+                    amt = _amount_display(str(_meta(fields).get("amount") or ""))
+                except Exception:
+                    amt = ""
+                ov["申请事项"] = EXTRA_DEFAULT_APPLY[key].replace("{N}", amt or "相应")
+            merged = {**fields, **ov}
+            add(title, key, out_stem, title, [
+                f"申请人：{merged.get('原告', '')}",
+                f"## 申请事项\n{merged.get('申请事项', '')}",
+                f"## 事实与理由\n{merged.get('事实与理由', '')}",
+                f"此致 {merged.get('受理法院', '')}", SIGN_LINE,
+            ], append_paras=append_paras, overrides=ov)
+
     mt._save_registry(template_dir, registry)
 
     client_items = (
@@ -789,7 +859,9 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
              f"- 标的额：{meta.get('amount') or '（待确认）'}", ""]
     lines.append("## 本 Skill 已生成（可打印签字）")
     for doc in docs:
-        lines.append(f"- {doc['name']}：`{doc['file']}`（槽位 {doc['slot_code']} {doc['slot']}）")
+        slot = f"槽位 {doc['slot_code']} {doc['slot']}" if doc.get("slot_code") else "槽位待人工选择"
+        hand = "　【一页式表格，正文需手工填写】" if doc.get("template_key") in EXTRA_HAND_FILL else ""
+        lines.append(f"- {doc['name']}：`{doc['file']}`（{slot}）{hand}")
     guides = [d for d in docs if d.get("fill_guide")]
     if guides:
         lines += ["", "## 旧版 .doc 模板：需人工填写"]
@@ -844,17 +916,27 @@ def main() -> int:
     ap.add_argument("--case-type", choices=["sp", "zx"], default="")
     ap.add_argument("--only-complaint", action="store_true", help="只生成诉状，不出整套材料")
     ap.add_argument("--only", default="", help="只生成指定模板 key，逗号分隔，如 delivery,account")
+    ap.add_argument("--extra", default="",
+                    help="按需文书 key，逗号分隔（保全/延期开庭/撤诉/追加被告/执行结案/情况说明等），"
+                         "正文取自 06运行记录/extra_docs.json")
+    ap.add_argument("--list-extra", action="store_true", help="列出全部可用的按需文书 key")
     ap.add_argument("--skip-image-check", action="store_true",
                     help="跳过图片标注体检（仅排障用；正常流程禁止跳过）")
     args = ap.parse_args()
+
+    if args.list_extra:
+        for k, (stem, title, _) in EXTRA_DOCS.items():
+            print(f"{k:24s} {stem}  {title}")
+        return 0
 
     case_dir = Path(args.case_dir).resolve()
     if not case_dir.exists():
         raise SystemExit(f"案件目录不存在：{case_dir}")
     case_type = args.case_type or str(_load(case_dir / "05案件信息" / "analysis_confirm.json").get("case_type") or "sp")
     only = {k.strip() for k in args.only.split(",") if k.strip()} if args.only else None
+    extra = {k.strip() for k in args.extra.split(",") if k.strip()} if args.extra else None
     result = render(case_dir, case_type, only_complaint=args.only_complaint, only=only,
-                    skip_image_check=args.skip_image_check)
+                    skip_image_check=args.skip_image_check, extra=extra)
     if args.only_complaint:
         result["documents"] = [d for d in result["documents"] if "起诉状" in d or "申请书" in d]
     print(json.dumps(result, ensure_ascii=False, indent=2))

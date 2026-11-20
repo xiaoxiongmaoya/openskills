@@ -218,7 +218,12 @@ python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
   - 已知限制：`enforcement` 等模板的被申请人段只有一行且“女，汉族”写死在原文里，多被告时会把两人名并到一行、性别沿用模板文字，出稿后必须人工核对这一行。
 - **身份证 OCR 置信度规则**：身份证截图可 OCR 取字段，但**高置信度才写入当事人信息，低置信度留空并提示手填**。判定以可验证性为准，不靠主观（`scripts/ocr_id_card.py`）：身份证号 18 位且校验位正确=high 可落库；校验错=low 留空；姓名 2-4 汉字且与登记一致=high；性别/出生日期与身份证号推导值一致=high 不一致=low；民族/住址=medium（可填标待核）。Agent 视觉读图后把结果写入 `05案件信息/id_ocr_input.json`，再 `ocr_id_card.py --apply` 落库，低置信度字段自动进 `_待核对` 提示手填。
 - **执行 zx**：强制执行申请书、送达地址确认书、收款账户确认书、证据目录、授权委托书（有代理时）、提交材料清单.md。
-- **可选**（明确要求才做）：财产保全、延期/线上开庭、撤诉、追加被告、执行结案、网络查控、情况说明、仲裁三件套、债权转移、劳务委托书。模板见 `manage_templates.py --list`。
+- **可选**（明确要求才做）：财产保全、延期/线上开庭、撤诉、追加被告、执行结案、网络查控、情况说明、仲裁三件套、债权转移、劳务委托书。
+  - 统一出口：`render_documents.py --case-dir <案> --case-type sp --extra preservation,postpone_hearing`，`--list-extra` 可列出全部 key（当前 14 个）。
+  - 正文一律取 `06运行记录/extra_docs.json` 里按 key 写的 `申请事项`/`事实与理由`/`情况说明`，脚本不编造事由。有固定程式的（保全、延期开庭、线上开庭、调解、撤诉、执行结案、网络查控）由 `EXTRA_DEFAULT_APPLY` 给标准请求语，其余留空待律师写。
+  - 一页式空白表格（线上开庭、先行调解、债权转移、劳务委托书）只输出原件、不追加段落，清单里标【一页式表格，正文需手工填写】。
+  - 模板缺失的 key（撤诉、追加被告、网络查控）会进 `manifest.skipped` 并在清单顶部提示，不影响其他文书。
+- **模板净化**（换模板或新增模板后必跑）：`python scripts/template_hygiene.py --scan` 体检，`--fix` 修复。规则覆盖：横线上残留的上手人名、写死的性别民族、写死的具体案由、写死的开庭时间法庭。模板来自真实用过的文书，不清就等着把别人案子印进自己文书。识别靠正则模式，不依赖姓名黑名单，因此能发现 `check_sensitive.py` 名单外的历史当事人。
 - `.doc` 旧格式模板无法程序化写入：复制原件，另出 `<同名>-填写内容.docx`，由律师手工填入。
 - 所有 Word 生成到 `04未签稿/`，保留签名/日期/捺印/盖章占位。
 - 机器状态在 `05案件信息/`：`chat_evidence.json`、`analysis.json`、`analysis_confirm.json`、`document_manifest.json`、`mcp_status.json`。

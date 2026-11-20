@@ -80,7 +80,9 @@ def slot_code_for(doc_name: str, case_type: str) -> str:
         return _first("代理人手续", "授权委托书及代理人身份证明")
     if "身份" in name:
         return _first("当事人身份证明", "申请人身份材料")
-    raise SystemExit(f"未知文书类型，无法映射槽位：{name}")
+    # 按需文书（保全、延期开庭、撤诉、情况说明等）多数不在法院标准槽位表里，
+    # 返回空槽位由人工在立案页选择，不能让一份可选文书卡住整批出稿。
+    return ""
 
 
 def slot_name_for(doc_name: str, case_type: str) -> str:

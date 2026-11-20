@@ -246,10 +246,53 @@ def fill_placeholders(path: Path, mapping: Dict[str, str], blank_missing: bool =
                 xml = xml.replace("{{" + key + "}}", value)
             # 阶段二：跨 run 的残留占位符，按段落合并文本后重建
             xml = _fill_split_placeholders(xml, mapping, blank_missing)
+            # 阶段三：占位符填成空串后的病句清理（如“女，族”“出生日期：，”）
+            xml = _clean_empty_tails(xml)
             data = xml.encode("utf-8")
         new_entries.append((info, data))
     _write_entries(path, new_entries)
     return path
+
+
+def _clean_empty_tails(xml: str) -> str:
+    """清掉占位符被填成空串后留下的病句尾巴。
+
+    模板里「{{性别}}，{{民族}}族」在民族为空时会变成「女，族」，
+    「出生日期：{{出生日期}}」会变成「出生日期：，」。这里统一收尾。
+    """
+    import re
+
+    def do_para(m: "re.Match") -> str:
+        pxml = m.group(0)
+        flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S))
+        if not flat.strip():
+            return pxml
+        new = re.sub(r"[，,]\s*族", "", flat)
+        new = re.sub(r"定于\s*在", "定于", new)
+        new = re.sub(r"(出生日期|身份证号|联系电话|电话|住址|手机号|地址|民族|性别)[：:]\s*(?=[，,。；;\s]|$)", "", new)
+        new = re.sub(r"[，,]{2,}", "，", new)
+        new = re.sub(r"[，,]\s*(?=[。；;])", "", new)
+        new = re.sub(r"[，,]\s*$", "", new)
+        if new == flat:
+            return pxml
+        ppr = re.search(r"<w:pPr>.*?</w:pPr>", pxml, re.S)
+        ppr = ppr.group(0) if ppr else ""
+        runs = re.findall(r"<w:r(?:\s[^>]*)?>.*?</w:r>", pxml, re.S)
+        rpr = ""
+        for r in runs:
+            if "<w:b " in r or "<w:b/" in r:
+                continue
+            rp = re.search(r"<w:rPr>.*?</w:rPr>", r, re.S)
+            if rp:
+                rpr = rp.group(0)
+                break
+        if not rpr and runs:
+            rp = re.search(r"<w:rPr>.*?</w:rPr>", runs[0], re.S)
+            rpr = rp.group(0) if rp else ""
+        body = _esc(new).replace("\n", '</w:t><w:br/><w:t xml:space="preserve">')
+        return f'<w:p>{ppr}<w:r>{rpr}<w:t xml:space="preserve">{body}</w:t></w:r></w:p>'
+
+    return re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
 
 
 def _fill_split_placeholders(xml: str, mapping: Dict[str, str],
