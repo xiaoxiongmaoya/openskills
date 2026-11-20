@@ -32,8 +32,9 @@ import doc_slots  # noqa: E402
 import manage_templates as mt  # noqa: E402
 import party_info as pi  # noqa: E402
 from docx_helper import (append_to_docx, expand_multi_party_paragraphs,  # noqa: E402
-                         fill_complaint_rows, fill_placeholders,
-                         find_placeholders, qualify_role_placeholders, write_docx)
+                         fill_complaint_rows, fill_evidence_table,
+                         fill_placeholders, find_placeholders,
+                         qualify_role_placeholders, write_docx)
 
 SIGN_LINE = "（签字/捺印）：____________    日期：____年__月__日"
 DOC_FILL_NOTICE = "旧版 .doc 模板无法程序化写入：以下为应填写内容，请对照填入 .doc 原件后打印签字。"
@@ -689,7 +690,8 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         return out
 
     def add(name: str, key: str, out_stem: str, title: str, paras: List[str],
-            append_paras: bool = True, overrides: Dict[str, str] | None = None) -> None:
+            append_paras: bool = True, overrides: Dict[str, str] | None = None,
+            evidence_rows: List[Dict[str, str]] | None = None) -> None:
         if only is not None and key not in only:
             return
         try:
@@ -705,6 +707,14 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         emitted = _emit(Path(entry["file"]), stem, title, keep(paras),
                         {**fields, **(overrides or {})}, append_paras=append_paras,
                         party_counts=party_counts)
+        # 结构化证据清单（模型给名称+证明内容）直接填进模板表格，律师不用再抄
+        ev_overflow = 0
+        if evidence_rows and emitted.get("file"):
+            try:
+                got = fill_evidence_table(Path(emitted["file"]), evidence_rows)
+                ev_overflow = max(0, len(evidence_rows) - got)
+            except Exception:
+                pass
         item = {
             "name": name,
             "file": f"04未签稿/{emitted['file'].name}",
@@ -720,6 +730,8 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         }
         if emitted["companion"]:
             item["fill_guide"] = f"04未签稿/{emitted['companion'].name}"
+        if ev_overflow:
+            item["evidence_overflow"] = ev_overflow
         docs.append(item)
 
     def complaint_mapping() -> Dict[str, str]:
@@ -922,9 +934,17 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
                 "是否接受电子送达：□是 □否    电子邮箱/手机号：" + fields["联系方式"],
                 SIGN_LINE,
             ])
+        # 证据目录：模型可在 complaint_text.json 用列表写「证据清单」（名称+证明内容），
+        # 脚本直接填进模板表格；不写才回落到证据包自动生成的文本清单（追加段落）。
+        ev_rows = None
+        _ctl = _load(case_dir / "06运行记录" / "complaint_text.json")
+        _ev = _ctl.get("证据清单") if isinstance(_ctl, dict) else None
+        if isinstance(_ev, list):
+            ev_rows = [r for r in _ev
+                       if isinstance(r, dict) and (r.get("名称") or r.get("证明内容"))]
         add("证据目录", "evidence", "04-证据目录", "证据目录", [
             f"提交人：{fields['原告']}", f"## 证据清单\n{fields['证据清单']}", SIGN_LINE,
-        ])
+        ], append_paras=not ev_rows, evidence_rows=ev_rows)
         if meta.get("has_agent"):
             add("授权委托书", "authorization", "03-授权委托书", "授权委托书", [
                 f"委托人：{fields['委托人']}    受托人：{fields['受托人']}",
@@ -982,6 +1002,10 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         slot = f"槽位 {doc['slot_code']} {doc['slot']}" if doc.get("slot_code") else "槽位待人工选择"
         hand = "　【一页式表格，正文需手工填写】" if doc.get("template_key") in EXTRA_HAND_FILL else ""
         lines.append(f"- {doc['name']}：`{doc['file']}`（{slot}）{hand}")
+    for doc in docs:
+        if doc.get("evidence_overflow"):
+            lines.append(f"- 【需手工加行】{doc['name']}表格行数不够，"
+                         f"还有 {doc['evidence_overflow']} 条证据未填，请复制行补齐")
     guides = [d for d in docs if d.get("fill_guide")]
     if guides:
         lines += ["", "## 旧版 .doc 模板：需人工填写"]

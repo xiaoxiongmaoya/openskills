@@ -555,3 +555,107 @@ def find_placeholders(path: Path) -> List[str]:
         xml = z.read("word/document.xml").decode("utf-8", "ignore")
     flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", xml, re.S))
     return sorted(set(re.findall(r"\{\{([^}]+)\}\}", flat)))
+
+
+def _set_cell_text(tc: str, text: str) -> str:
+    """把表格单元格的文字换掉，保留原 tcPr 与首个 run 的字体格式。"""
+    import re
+    state = {"first": True}
+
+    def repl(m: "re.Match") -> str:
+        if state["first"]:
+            state["first"] = False
+            return m.group(1) + (text.replace("&", "&amp;").replace("<", "&lt;")
+                                 .replace(">", "&gt;")) + m.group(3)
+        return m.group(1) + m.group(3)
+
+    out, n = re.subn(r"(<w:t(?:\s[^>]*)?>)(.*?)(</w:t>)", repl, tc, flags=re.S)
+    if n:
+        return out
+    # 空单元格：tcPr 后补一个段落承载文字
+    tcpr = re.search(r"<w:tcPr>.*?</w:tcPr>", tc, re.S)
+    body = (f'<w:p><w:r><w:t xml:space="preserve">{text}</w:t></w:r></w:p>'
+            if text else "<w:p/>")
+    if tcpr:
+        return tc.replace(tcpr.group(0), tcpr.group(0) + body, 1)
+    return tc.replace("<w:tc>", "<w:tc>" + body, 1)
+
+
+def fill_evidence_table(path: Path, rows: List[Dict[str, str]]) -> int:
+    """把证据条目填进「证据目录」表格（表头后连续空行），多余行删掉。
+
+    rows 每项：{"名称": "短信欠条截图", "证明内容": "债务人确认拖欠工资12000元"}
+    只做结构与位置，措辞由调用方（模型）提供——脚本不编造证据内容。
+    返回实际填入条数；小于 len(rows) 说明模板行数不够，调用方要提示手工加行。
+    """
+    import re
+    path = Path(path)
+    if not zipfile.is_zipfile(path) or not rows:
+        return 0
+    entries = _read_entries(path)
+    new_entries = []
+    filled_total = 0
+    for info, data in entries:
+        if info.filename != "word/document.xml":
+            new_entries.append((info, data))
+            continue
+        xml = data.decode("utf-8", "ignore")
+        tbls = list(re.finditer(r"<w:tbl>.*?</w:tbl>", xml, re.S))
+        if not tbls:
+            new_entries.append((info, data))
+            continue
+        tbl = tbls[0].group(0)
+        trs = list(re.finditer(r"<w:tr[ >].*?</w:tr>", tbl, re.S))
+        if len(trs) < 3:
+            new_entries.append((info, data))
+            continue
+        # 表头 = 含「证明内容」的行；数据行 = 表头之后到「提交人/提交日期」之前
+        header_idx = 0
+        for i, m in enumerate(trs):
+            flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", m.group(0), re.S))
+            if "证明内容" in flat or "证据" in flat and "名称" in flat:
+                header_idx = i
+                break
+        data_idx = []
+        for i in range(header_idx + 1, len(trs)):
+            flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", trs[i].group(0), re.S))
+            if "提交人" in flat or "提交日期" in flat or "签字" in flat:
+                break
+            data_idx.append(i)
+        if not data_idx:
+            new_entries.append((info, data))
+            continue
+
+        new_tbl = tbl
+        data_set = set(data_idx)
+        seg: List[str] = []
+        cursor = 0
+        filled = 0
+        for i, m in enumerate(trs):
+            seg.append(tbl[cursor:m.start()])
+            cursor = m.end()
+            tr = m.group(0)
+            if i in data_set:
+                if filled >= len(rows):
+                    continue  # 多余空行整行删掉
+                item = rows[filled]
+                filled += 1
+                tcs = list(re.finditer(r"<w:tc>.*?</w:tc>", tr, re.S))
+                new_tr = tr
+                pairs = [(0, str(filled)), (1, str(item.get("名称") or "")),
+                         (2, str(item.get("证明内容") or ""))]
+                for cell_i, val in reversed(pairs):
+                    if cell_i >= len(tcs):
+                        continue
+                    old_tc = tcs[cell_i].group(0)
+                    new_tr = new_tr.replace(old_tc, _set_cell_text(old_tc, val), 1)
+                tr = new_tr
+            seg.append(tr)
+        filled_total = filled
+        seg.append(tbl[cursor:])
+        new_tbl = "".join(seg)
+        xml = xml.replace(tbl, new_tbl, 1)
+        data = xml.encode("utf-8")
+        new_entries.append((info, data))
+    _write_entries(path, new_entries)
+    return filled_total
