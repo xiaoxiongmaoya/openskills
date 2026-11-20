@@ -88,6 +88,11 @@ def slot_name_for(doc_name: str, case_type: str) -> str:
     reverse = {v: k for k, v in SLOT_ALIAS.items()}
     if case_type == "zx":
         reverse.update(EXEC_SLOTS)
+    else:
+        # sp 一审：起诉状与执行申请书共用槽位码 11800016-2，
+        # reverse 里“执行申请书”会覆盖“起诉状”。按文书类型纠正，避免清单显示成执行槽位。
+        if "起诉状" in str(doc_name):
+            reverse[code] = "起诉状"
     return reverse.get(code, code)
 
 
