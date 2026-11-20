@@ -33,7 +33,7 @@ author: "case-assistant"
 2. 真实工具名：元典 `yuandian_semantic_search_legal_articles` / `yuandian_semantic_search_cases`；企查查 `mcp__qcc-legal__get_legal_article_semantic_search` / `mcp__qcc-legal__get_judicial_case_search`。返回结构见 @references/mcp-yuandian.md、@references/mcp-qcc.md。
 3. 一个源都没连：**暂停法律/案例检索**，报告只写有来源的事实，法律与类案章节留占位并标“待核验”。**严禁虚构法条、案号、法院**。
 4. 工具名会随显示名漂移：先用 `ToolSearch(tool_names=[...])` 反查真实全名，再用 `DeferExecuteTool` 调用。详见 @references/mcp-yuandian.md 与 @references/mcp-qcc.md。
-5. **模板来源**：技能自带 `assets/templates/`（43 条登记：32 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。`manage_templates.py --list` 查全表；`.doc` 旧格式从 `_raw_doc/` 复制原件 + 出「填写内容」docx，不改二进制。
+5. **模板来源**：技能自带 `assets/templates/`（44 条登记：33 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。`manage_templates.py --list` 查全表；`.doc` 旧格式从 `_raw_doc/` 复制原件 + 出「填写内容」docx，不改二进制。
 6. 聊天截图 OCR 为可选能力：有 OCR 库则识别；没有则标 `needs_review`，由律师人工核对，不把 OCR 猜测当事实。
 
 ## 硬边界（不可违反）
@@ -215,6 +215,7 @@ python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
   - 角色称谓表在 `docx_helper._ROLE_ALIAS`：`申请人`/`申请执行人`/`委托人`/`上诉人` → 原告，`被申请人`/`被执行人`/`被上诉人` → 被告。`qualify_role_placeholders` 按段首称谓给该段无角色占位符加前缀，所以模板写“申请人/被申请人”还是“原告/被告”都能正确取人。
   - **新增模板或换模板时**：跑一遍 `qualify_role_placeholders + fill_placeholders`，确认（a）无 `{{...}}` 残留、（b）被申请人/被执行人段落里不含原告身份证号、（c）多行正文段没被 `keep()` 当成“标签：值”截断。占位符用词超出上述别名的，在 `_expand_aliases` 加一行即可，不要为新模板另写专用映射函数。
   - `keep()` 对含换行或不以「标签：」开头的段落整段保留——证据清单、情况说明这类纯文本段落绝不能被逐行解析，否则只剩含冒号的那一行。
+  - **证据清单由证据包自动生成正式目录条目**：读 `05案件信息/evidence_package.json` 的「证明目的」，按 债权凭证 → 身份证明 → 维权费用 → 委托手续 → 其他 归组排序，输出「证据N：xxx」。同一笔支出有多张截图（支付成功 + 账单详情、原价 + 优惠实付）自动合并，只留实付金额；存疑材料单列「待核实后决定是否提交」。**原始文件名（`企业微信图片_2026….jpg`）绝不进正式目录**，律师拿到即可抄进表格。
   - **多当事人自动拆行**：`docx_helper.expand_multi_party_paragraphs` 会把「申请人/被申请人/原告/被告」这类单行段落按实际人数复制成多行，每行格式与原件一致，键改写成带序号的 `{{被告2身份证号}}`。两个被告不再挤在「萧薇、张帆」一行里共用一个人的证件号。字段由 `_expand_aliases` 的 `原告N*/被告N*` 系列提供。
   - **落款日期**：`{{日期}}` 统一填 `　　　　年　　月　　日`（全角空格），视觉上像正式文书；开庭日期用独立键 `{{开庭日期}}`，留空待律师填具体日子。模板自带横线的（如「____年___月___日」）保持原样不覆盖。
   - 模板层的落款写法已被 `template_hygiene.py --fix` 统一（原来 11 种写法：半角空格、全角下划线、几十个前导空格顶右……）。换新模板后先跑一次 `--scan`，报「落款日期格式不统一」的会被改成 `　　　　年　　月　　日`，靠空格顶到右边的自动改为段落右对齐；「出生日期：  年  月  日」属当事人信息栏，不在统一范围内。

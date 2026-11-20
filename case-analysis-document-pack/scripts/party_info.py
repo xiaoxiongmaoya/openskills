@@ -46,6 +46,18 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
+def _fmt_nation(text: str) -> str:
+    """民族统一成「汉族」这种带“族”的写法。
+
+    模板里 {{民族}} 后面不带“族”字（带了民族为空会剩「，族」），
+    所以规范值必须自带“族”；已带“族”的不重复加，空值保持空。
+    """
+    s = str(text or "").strip().strip("，,。；;")
+    if not s:
+        return ""
+    return s if s.endswith("族") else s + "族"
+
+
 def _fmt_birth(text: str) -> str:
     """把各种出生日期写法统一成诉状用的「YYYY年M月D日」。
 
@@ -95,7 +107,7 @@ def _norm_one(item: Dict[str, Any], role: str) -> Dict[str, str]:
         "name": str(item.get("姓名") or item.get("原告") or item.get("被告") or "").strip(),
         "id": idno,
         "sex": sex,
-        "nation": str(item.get("民族") or "").strip(),
+        "nation": _fmt_nation(str(item.get("民族") or "").strip()),
         "birth": birth,
         "phone": str(item.get("电话") or "").strip(),
         "address": str(item.get("送达地址") or item.get("住址") or "").strip(),

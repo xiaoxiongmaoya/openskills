@@ -81,6 +81,20 @@ EXTRA_DEFAULT_APPLY: Dict[str, str] = {
 import re  # noqa: E402
 
 
+def _evidence_class(purpose: str) -> tuple:
+    """证据归组：(类别名, 排序权重)。目录按债权凭证→身份→维权费用→委托手续→其他排。"""
+    p = str(purpose or "")
+    if any(k in p for k in ("欠条", "借条", "借款", "合同", "协议", "对账", "结算", "债权")):
+        return "债权凭证", 0
+    if "身份证" in p or "身份证明" in p or "户籍" in p:
+        return "身份证明", 1
+    if any(k in p for k in ("律师费", "代理费", "诉讼费", "支付", "收款", "账单", "转账")):
+        return "维权费用", 2
+    if any(k in p for k in ("委托", "授权", "委托函")):
+        return "委托手续", 3
+    return "其他材料", 4
+
+
 def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
@@ -198,16 +212,68 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
             narrative.append(text if text.endswith(("。", "；", "！")) else text + "。")
     facts_text = "".join(narrative) or ""
 
-    sources = chat.get("sources") or []
+    # 证据清单：优先用证据包（evidence_package.json）的「证明目的」写成正式目录条目；
+    # 没有证据包时才回落聊天来源文件。原始文件名（企业微信图片_2026…jpg）不进正式目录。
     evidence_lines: List[str] = []
-    for idx, src in enumerate(sources, 1):
-        if isinstance(src, dict):
-            evidence_lines.append(f"{idx}. {src.get('file', '')}（{src.get('type', '')}）")
+    pkg = _load(case_dir / "05案件信息" / "evidence_package.json")
+    pkg_entries = [e for e in (pkg.get("entries") or []) if isinstance(e, dict)]
+    if pkg_entries:
+        # 按证明类别归组：债权凭证 -> 身份证明 -> 维权费用 -> 委托手续 -> 其他。
+        # 同一笔支出常有多张截图（支付成功 + 账单详情），同类金额合并成一条，避免目录虚胖。
+        groups: Dict[str, Dict[str, Any]] = {}
+        doubtful: List[str] = []
+        for ent in pkg_entries:
+            purpose = str(ent.get("证明目的") or "").strip()
+            if not purpose:
+                continue
+            if str(ent.get("存疑") or "").lower() in ("true", "1", "yes"):
+                doubtful.append(purpose)
+                continue
+            cls, rank = _evidence_class(purpose)
+            g = groups.setdefault(cls, {"rank": rank, "items": [], "amounts": []})
+            g["items"].append(purpose)
+            m = re.search(r"支付\s*(\d+(?:\.\d+)?)\s*元", purpose)
+            if m and cls == "维权费用":
+                amt = m.group(1)
+                if amt not in g["amounts"]:
+                    g["amounts"].append(amt)
+        seq = 0
+        for cls, g in sorted(groups.items(), key=lambda kv: kv[1]["rank"]):
+            seq += 1
+            if cls == "维权费用" and g["amounts"]:
+                # 同一笔支付常有「原价」与「优惠后实付」两个数（2000 / 1999.60），
+                # 差值小于 1 元的视为同一笔，只留实付金额。
+                nums = sorted({a for a in g["amounts"]}, key=float)
+                keep = [a for a in nums
+                        if not any(0 < float(a) - float(b) < 1 for b in nums if float(b) < float(a))]
+                joined = "、".join(f"{a}元" for a in (keep or nums))
+                evidence_lines.append(f"证据{seq}：{cls}凭证（微信支付），金额{joined}；证明为维权实际支出")
+                continue
+            core = re.split(r"[；;]", g["items"][0])[0].strip()
+            if len(core) > 90:
+                core = core[:90].rstrip("，、—— ") + "…"
+            evidence_lines.append(f"证据{seq}：{core}")
+            for extra in g["items"][1:]:
+                tail = re.split(r"[；;]", extra)[0].strip()
+                if len(tail) > 80:
+                    tail = tail[:80].rstrip("，、—— ") + "…"
+                evidence_lines.append(f"　　　　{tail}")
+        if doubtful:
+            evidence_lines.append("（以下材料待核实后决定是否提交："
+                                  + "；".join(d[:40] for d in doubtful) + "）")
+    else:
+        sources = chat.get("sources") or []
+        for idx, src in enumerate(sources, 1):
+            if isinstance(src, dict):
+                evidence_lines.append(f"证据{idx}：{src.get('file', '')}（{src.get('type', '')}）")
     grid = findings.get("evidence_grid") or []
-    for item in grid:
-        if isinstance(item, dict):
-            evidence_lines.append(f"- {item.get('claim', '')}：{item.get('evidence', '')}")
-    evidence_text = "\n".join(evidence_lines) or "（待补充证据清单）"
+    if grid:
+        evidence_lines.append("")
+        evidence_lines.append("证明对象：")
+        for item in grid:
+            if isinstance(item, dict):
+                evidence_lines.append(f"- {item.get('claim', '')}：{item.get('evidence', '')}")
+    evidence_text = "\n".join(evidence_lines) or ""
 
     agent = spec.get("agent") or {}
     agent_name = str(summary.get("agent_name") or agent.get("name") or "")
@@ -325,7 +391,7 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
         mapping[f"{tag}手机号"] = phone
         # 分段占位：缺值整段消失，不留下「，族，」这种断裂
         mapping[f"{tag}性别段"] = f"，{gender}" if gender else ""
-        mapping[f"{tag}民族段"] = f"，{ethnic}族" if ethnic else ""
+        mapping[f"{tag}民族段"] = f"，{ethnic}" if ethnic else ""  # ethnic 已含“族”
         mapping[f"{tag}出生段"] = f"，{birth}出生" if birth else ""
         mapping[f"{tag}地址段"] = f"，住{addr}" if addr else ""
         mapping[f"{tag}证件段"] = f"，身份证号：{pid}" if pid else ""
@@ -416,7 +482,7 @@ def _expand_aliases(mapping: Dict[str, str], case_dir: Path) -> None:
         pid = mapping.get(f"{tag}身份证号") or ""
         phone = mapping.get(f"{tag}电话") or ""
         mapping[f"{tag}性别段"] = f"，{sex}" if sex else ""
-        mapping[f"{tag}民族段"] = f"，{ethnic}族" if ethnic else ""
+        mapping[f"{tag}民族段"] = f"，{ethnic}" if ethnic else ""  # ethnic 已含“族”
         mapping[f"{tag}出生段"] = f"，{birth}出生" if birth else ""
         mapping[f"{tag}地址段"] = f"，住{addr}" if addr else ""
         mapping[f"{tag}证件段"] = f"，身份证号：{pid}" if pid else ""
