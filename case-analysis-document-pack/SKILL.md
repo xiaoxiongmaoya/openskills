@@ -49,6 +49,30 @@ author: "case-assistant"
 7. 姓名、证件号、金额不从图片 OCR 或 PDF 取；只从 Word 原稿、明确文本或律师调整项取。
 8. 全程不调用 `ensure_login`、不上传、不提交。
 
+## 建议式决策（律师确认清单的默认行为）
+
+报告第 13 节不是让律师从零填写，而是**每项都带建议，律师只选或改**。四项固定决策由
+`analyze_case.py` 的 `build_decision_suggestions()` 自动生成，写入 `analysis.json` 的
+`decision_suggestions`，并同时反映在第 1 节基本案情与第 13 节。Agent 可在
+`agent_findings.json` 写 `decision_suggestions` 覆盖默认值（推荐写法见下）。
+
+1. **案由（建议选择）**：给「推荐 + 备选 + 理由 + 依据」，不写“请律师确认案由”。
+   写入 `decision_suggestions.cause = {recommend, alternatives[], reason, basis}`。
+   Agent 应结合类案检索给出推荐与备选（如劳务合同纠纷 / 追索劳动报酬纠纷 / 劳动争议）。
+2. **管辖法院（建议选择）**：给「推荐法院 + 候选 + 依据」，不写“需律师指定法院”。
+   写入 `decision_suggestions.court = {recommend, candidates[], basis}`；依据按民诉法一般地域
+   管辖（被告住所地）+ 合同纠纷履行地，具体法院名称与 fyid 由律师在立案平台核对。
+3. **律师费（有凭证即主张）**：脚本扫 `evidence_package.json`，`证明目的`含
+   “律师费/代理费/维权费用”且非存疑即自动列入诉讼请求，不再作为待确认项。金额需去重；
+   能否获支持属胜诉风险，不影响是否主张。可在 `decision_suggestions.lawyer_fee.claim_text` 覆盖措辞。
+4. **逾期利息/资金占用损失（每案必问 + 建议）**：固定每案询问，但基于案情给建议。
+   写入 `decision_suggestions.interest = {recommend, start_point, basis}`；
+   `start_point` 结合欠条约定的履行期届满日，无约定则参照同省类案以起诉状副本送达日起算，按 LPR。
+   这些建议全部来自检索与证据，脚本不臆造金额/法条；无依据字段写“待律师判断”。
+
+`questions` 字段仍可写自定义待确认项，但已被上述四项覆盖的话题（案由/劳动定性/法院/管辖/
+律师费/利息/逾期/仲裁前置）会自动从第 13 节去重，不重复列出。
+
 ## 快速开始
 
 ```bash

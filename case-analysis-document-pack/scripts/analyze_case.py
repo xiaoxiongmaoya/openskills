@@ -83,6 +83,97 @@ def _merge_findings(findings: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def build_decision_suggestions(analysis: Dict[str, Any], case_dir: Path) -> Dict[str, Any]:
+    """把需要律师拍板的事项做成“建议式决策”，而不是让律师从零确认。
+
+    四项固定决策：案由、管辖法院、律师费、逾期利息/资金占用损失。
+    原则：
+      - 案由/法院：给“推荐 + 备选 + 依据/理由”，律师只需选或改，不从零填。
+      - 律师费：证据包检测到支付凭证即自动列入诉讼请求，不再当待确认项。
+      - 利息：每案固定询问，但基于案情给建议起算点与标准，律师确认即可。
+    所有建议来自 findings 或证据包，脚本不臆造金额/法条；无依据的字段标“待律师判断”。
+    """
+    findings = analysis.get("agent_findings") or {}
+    summary = findings.get("case_summary") or {}
+    if not isinstance(summary, dict):
+        summary = {}
+    raw_suggest = findings.get("decision_suggestions") or {}
+    if not isinstance(raw_suggest, dict):
+        raw_suggest = {}
+
+    # 1) 案由：推荐 + 备选 + 理由
+    cause = str(summary.get("cause") or "").strip()
+    cs = raw_suggest.get("cause") or {}
+    if not isinstance(cs, dict):
+        cs = {}
+    cause_item = {
+        "recommend": str(cs.get("recommend") or cause or "待律师判断"),
+        "alternatives": cs.get("alternatives") or [],
+        "reason": str(cs.get("reason") or ""),
+        "basis": str(cs.get("basis") or ""),
+        "status": "建议选择",
+    }
+
+    # 2) 管辖：候选 + 依据
+    court_item = raw_suggest.get("court") or {}
+    if not isinstance(court_item, dict):
+        court_item = {}
+    candidates = court_item.get("candidates") or []
+    if not candidates:
+        ctxt = str(summary.get("court") or "").strip()
+        if ctxt and ctxt != PLACEHOLDER:
+            candidates = [ctxt]
+    court_suggestion = {
+        "recommend": str(court_item.get("recommend") or (candidates[0] if candidates else "待律师判断")),
+        "candidates": candidates,
+        "basis": str(court_item.get("basis") or "一般地域管辖：被告住所地；合同纠纷可由合同履行地。具体法院名称需在立案平台核对。"),
+        "status": "建议选择",
+    }
+
+    # 3) 律师费：证据包检测到支付凭证即自动主张
+    fee_item = raw_suggest.get("lawyer_fee") or {}
+    if not isinstance(fee_item, dict):
+        fee_item = {}
+    fee_entries = []
+    pkg = _load(case_dir / "05案件信息" / "evidence_package.json")
+    for entry in (pkg.get("entries") or []):
+        if not isinstance(entry, dict) or entry.get("存疑"):
+            continue
+        purpose = str(entry.get("证明目的") or "")
+        if any(kw in purpose for kw in ("律师费", "代理费", "律师服务费", "维权费用")):
+            fee_entries.append({"名称": entry.get("名称"), "证明目的": purpose})
+    auto_claim_fee = bool(fee_entries) or bool(fee_item.get("claim"))
+    fee_suggestion = {
+        "auto_claim": auto_claim_fee,
+        "claim_text": str(fee_item.get("claim_text") or "判令被告承担原告为实现债权支出的律师费（以证据凭证金额为准）"),
+        "evidence": fee_entries,
+        "note": str(fee_item.get("note") or ("证据包已检测到律师费支付凭证，自动列入诉讼请求；"
+                                             "能否获支持取决于是否有约定或法律依据，属胜诉风险不影响主张。")) if auto_claim_fee
+                else "未检测到律师费支付凭证，不主动主张。",
+        "status": "自动主张" if auto_claim_fee else "无凭证不主张",
+    }
+
+    # 4) 利息/资金占用损失：每案固定询问 + 建议起算点
+    itr = raw_suggest.get("interest") or {}
+    if not isinstance(itr, dict):
+        itr = {}
+    interest_suggestion = {
+        "ask_every_case": True,
+        "recommend": str(itr.get("recommend") or "主张逾期付款资金占用利息，按同期一年期LPR计算至实际付清之日"),
+        "start_point": str(itr.get("start_point") or "建议起算点：欠条约定的履行期届满日；未约定则自起诉状副本送达被告之日（参照同省类案）"),
+        "basis": str(itr.get("basis") or ""),
+        "question": "是否主张逾期付款利息/资金占用损失？起算点如何确定（已给建议）",
+        "status": "每案询问+建议",
+    }
+
+    return {
+        "cause": cause_item,
+        "court": court_suggestion,
+        "lawyer_fee": fee_suggestion,
+        "interest": interest_suggestion,
+    }
+
+
 def _md_table(headers: List[str], rows: List[List[Any]]) -> List[str]:
     lines = ["| " + " | ".join(headers) + " |",
              "| " + " | ".join(["---"] * len(headers)) + " |"]
@@ -235,9 +326,35 @@ def render_report(analysis: Dict[str, Any], chat: Dict[str, Any], mcp_status: Di
     if not isinstance(summary, dict):
         summary = {}
     out += ["## 1. 基本案情", ""]
-    for key, label in (("case_type", "案件类型"), ("cause", "案由"), ("plaintiff", "原告"),
-                       ("defendant", "被告"), ("amount", "标的额"), ("court", "受理法院")):
+    decisions = analysis.get("decision_suggestions") or {}
+    cause_dec = decisions.get("cause") or {}
+    court_dec = decisions.get("court") or {}
+    for key, label in (("case_type", "案件类型"), ("plaintiff", "原告"),
+                       ("defendant", "被告"), ("amount", "标的额")):
         out.append(f"- {label}：{summary.get(key) or PLACEHOLDER}")
+
+    # 案由：显示建议选择，而非让律师从零确认
+    cause_line = f"- 案由：{cause_dec.get('recommend') or summary.get('cause') or PLACEHOLDER}"
+    if cause_dec.get("alternatives"):
+        cause_line += f"（备选：{'、'.join(str(x) for x in cause_dec['alternatives'])}）"
+    if cause_dec.get("reason"):
+        cause_line += f"。建议理由：{cause_dec['reason']}"
+    cause_line += "【建议选择，待律师确认】"
+    out.append(cause_line)
+
+    # 法院：显示建议候选，而非让律师从零指定
+    court_line = f"- 受理法院：{court_dec.get('recommend') or summary.get('court') or PLACEHOLDER}"
+    if court_dec.get("candidates") and len(court_dec["candidates"]) > 1:
+        court_line += f"（候选：{'；'.join(str(x) for x in court_dec['candidates'])}）"
+    if court_dec.get("basis"):
+        court_line += f"。依据：{court_dec['basis'].rstrip('。')}"
+    court_line += "。【建议选择，待律师确认】"
+    out.append(court_line)
+
+    # 律师费：有凭证即自动列入主张
+    fee_dec = decisions.get("lawyer_fee") or {}
+    if fee_dec.get("auto_claim"):
+        out.append(f"- 律师费主张：{fee_dec.get('claim_text')}【证据已检测到支付凭证，自动列入主张】")
     out.append("")
 
     # 图片用途标注：Agent 看图后写入 05案件信息/image_labels.json，优先于“需人工核对”
@@ -375,9 +492,44 @@ def render_report(analysis: Dict[str, Any], chat: Dict[str, Any], mcp_status: Di
     out.append("- 法条与类案以第三方检索来源为准；未检索到即标待核验。")
     out.append("")
 
-    out += ["## 13. 律师确认清单", ""]
-    for idx, question in enumerate(questions or ["事实与来源", "法律关系", "案由", "法院", "标的额", "诉讼请求", "证据缺口"], 1):
-        out.append(f"{idx}. {question}")
+    out += ["## 13. 律师确认清单（建议式决策）", ""]
+    out.append("以下事项均已附建议，律师只需选择或修正；不再要求从零填写。")
+    out.append("")
+    decisions = analysis.get("decision_suggestions") or {}
+
+    cause_dec = decisions.get("cause") or {}
+    out.append(f"1. **案由**：建议定为「{cause_dec.get('recommend') or summary.get('cause') or PLACEHOLDER}」。"
+               + (f"备选：{'、'.join(str(x) for x in cause_dec['alternatives'])}。" if cause_dec.get("alternatives") else "")
+               + (f"理由：{str(cause_dec['reason']).rstrip('。')}。" if cause_dec.get("reason") else "")
+               + "→ 请律师选定或调整。")
+
+    court_dec = decisions.get("court") or {}
+    out.append(f"2. **管辖法院**：建议「{court_dec.get('recommend') or summary.get('court') or PLACEHOLDER}」。"
+               + (f"依据：{court_dec['basis'].rstrip('。')}。" if court_dec.get("basis") else "")
+               + "→ 请律师选定具体受理法院并匹配 fyid。")
+
+    fee_dec = decisions.get("lawyer_fee") or {}
+    if fee_dec.get("auto_claim"):
+        out.append(f"3. **律师费**：证据包已检测到支付凭证，已自动列入诉讼请求（{fee_dec['claim_text']}）。"
+                   + "请律师确认主张金额（凭证需去重）；能否获支持属胜诉风险，不影响是否主张。")
+    else:
+        out.append("3. **律师费**：未检测到支付凭证，暂不主张；如另有约定请补充。")
+
+    itr = decisions.get("interest") or {}
+    out.append(f"4. **逾期利息/资金占用损失**：{str(itr.get('recommend') or '是否主张请律师判断').rstrip('。')}。"
+               + (f"{str(itr['start_point']).rstrip('。')}。" if itr.get("start_point") else "")
+               + (f"依据：{str(itr['basis']).rstrip('。')}。" if itr.get("basis") else "")
+               + "→ 此事项每案必问，请律师确认是否主张及起算点。")
+
+    # 其余自定义待确认项（若有），从建议式清单之后续排
+    # 已被四项建议覆盖的话题不再重复列出（案由/劳动定性、法院管辖、律师费、利息）
+    fixed_topics = ("案由", "法院", "管辖", "律师费", "利息", "逾期", "劳动关系", "仲裁前置", "受理法院")
+    extra = [q for q in (questions or []) if not any(t in str(q) for t in fixed_topics)]
+    if extra:
+        out.append("")
+        out.append("其他待确认：")
+        for q in extra:
+            out.append(f"- {q}")
     out.append("")
 
     out += ["## 14. 免责声明", "",
@@ -455,6 +607,8 @@ def analyze(case_dir: Path, case_type: str, findings_path: Path, no_mcp: bool) -
         "image_labels": _load(case_dir / "05案件信息" / "image_labels.json"),
         "analysis_source": "agent_findings" if findings else "chat_derived_only",
     }
+    # 建议式决策：案由/法院给候选、律师费有凭证即主张、利息每案询问并给建议
+    analysis["decision_suggestions"] = build_decision_suggestions(analysis, case_dir)
     completeness = check_completeness.check(case_dir, analysis, chat, mcp_status)
     analysis["completeness"] = completeness
     report = render_report(analysis, chat, mcp_status)
