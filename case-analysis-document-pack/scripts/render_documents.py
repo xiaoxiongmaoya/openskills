@@ -31,7 +31,8 @@ import confirm_gate  # noqa: E402
 import doc_slots  # noqa: E402
 import manage_templates as mt  # noqa: E402
 import party_info as pi  # noqa: E402
-from docx_helper import (append_to_docx, fill_complaint_rows, fill_placeholders,  # noqa: E402
+from docx_helper import (append_to_docx, expand_multi_party_paragraphs,  # noqa: E402
+                         fill_complaint_rows, fill_placeholders,
                          find_placeholders, qualify_role_placeholders, write_docx)
 
 SIGN_LINE = "（签字/捺印）：____________    日期：____年__月__日"
@@ -421,8 +422,10 @@ def _expand_aliases(mapping: Dict[str, str], case_dir: Path) -> None:
         mapping[f"{tag}证件段"] = f"，身份证号：{pid}" if pid else ""
         mapping[f"{tag}电话段"] = f"，联系电话：{phone}" if phone else ""
 
-    # 立案后才知道、或由当事人手写的字段，保持空白
-    for key in ("日期", "案号", "微信号"):
+    # 落款日期给统一格式，视觉上像正式文书；开庭日期等具体日期留空待律师填
+    if not mapping.get("日期"):
+        mapping["日期"] = "　　　　年　　月　　日"
+    for key in ("开庭日期", "案号", "微信号"):
         mapping.setdefault(key, "")
 
 
@@ -497,11 +500,13 @@ def _meta(fields: Dict[str, str]) -> Dict[str, Any]:
 
 
 def _emit(template: Path, target_stem: Path, title: str, paras: List[str],
-          fields: Dict[str, str], append_paras: bool = True) -> Dict[str, Any]:
+          fields: Dict[str, str], append_paras: bool = True,
+          party_counts: tuple = (1, 1)) -> Dict[str, Any]:
     """按模板扩展名选择注入方式，返回实际落盘信息。
 
     硬规矩：模板只读，任何写入只发生在传进来的副本路径上。
     append_paras=False：模板已用占位符承载正文时不再追加「填写内容」段落，避免正文重复。
+    party_counts：原告/被告人数，多当事人时把单行段落复制成多行。
     """
     target_stem = target_stem.resolve()
     template = template.resolve()
@@ -514,6 +519,8 @@ def _emit(template: Path, target_stem: Path, title: str, paras: List[str],
         try:
             # 先把被告段的无角色占位符改成被告专用键，避免把原告信息填进被告栏
             qualify_role_placeholders(target)
+            # 多当事人：单行段落按人数复制，各占一行且格式一致
+            expand_multi_party_paragraphs(target, party_counts[0], party_counts[1])
             if append_paras:
                 append_to_docx(target, "填写内容（可打印签字）", paras)
             fill_placeholders(target, fields, blank_missing=True)
@@ -563,6 +570,13 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
 
     docs: List[Dict[str, Any]] = []
     skipped: List[Dict[str, str]] = []
+    # 当事人人数：多原告/多被告时，单行段落要按人数复制
+    try:
+        _pinfo_all = pi.load(case_dir)
+    except Exception:
+        _pinfo_all = {}
+    party_counts = (len(_pinfo_all.get("plaintiffs") or []) or 1,
+                    len(_pinfo_all.get("defendants") or []) or 1)
 
     BLANK_TOKENS = ("（待补充）", "(待补充)", "（待确认）", "(待确认)", "待补充", "待确认",
                     "（待补", "详见事实与理由", "暂无", "（暂无")
@@ -623,7 +637,8 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         if drafts.resolve() not in stem.parents:
             raise SystemExit(f"产物必须落在 04未签稿/，拒绝写入：{stem}")
         emitted = _emit(Path(entry["file"]), stem, title, keep(paras),
-                        {**fields, **(overrides or {})}, append_paras=append_paras)
+                        {**fields, **(overrides or {})}, append_paras=append_paras,
+                        party_counts=party_counts)
         item = {
             "name": name,
             "file": f"04未签稿/{emitted['file'].name}",

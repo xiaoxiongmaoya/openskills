@@ -254,6 +254,49 @@ def fill_placeholders(path: Path, mapping: Dict[str, str], blank_missing: bool =
     return path
 
 
+def expand_multi_party_paragraphs(path: Path, plaintiff_count: int,
+                                  defendant_count: int) -> Path:
+    """把单行的当事人段落按人数复制成多行：多被告各占一行，不并列在一行里。
+
+    申请表类模板只留了一行「被申请人：{{被告}}，…」，两个被告会挤成
+    「萧薇、张帆」并共用一个人的身份证号。这里把该段复制 N 份，
+    每份的无角色键改成带序号的键（{{被告地址}} -> {{被告1地址}}），格式完全一致。
+    """
+    import re
+    path = Path(path)
+    if not zipfile.is_zipfile(path):
+        return path
+    entries = _read_entries(path)
+    new_entries = []
+    for info, data in entries:
+        if info.filename != "word/document.xml":
+            new_entries.append((info, data))
+            continue
+        xml = data.decode("utf-8", "ignore")
+
+        def do_para(m: "re.Match") -> str:
+            pxml = m.group(0)
+            flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S))
+            role = _detect_role(flat.strip())
+            if not role or "{{" not in flat:
+                return pxml
+            count = plaintiff_count if role == "原告" else defendant_count
+            if count <= 1:
+                return pxml
+            segs = []
+            for i in range(1, count + 1):
+                seg = pxml.replace("{{" + role + "}}", "{{%s%d姓名}}" % (role, i))
+                for k in _ROLE_UNROLED:
+                    seg = seg.replace("{{" + role + k + "}}", "{{%s%d%s}}" % (role, i, k))
+                segs.append(seg)
+            return "".join(segs)
+
+        xml = re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
+        new_entries.append((info, xml.encode("utf-8")))
+    _write_entries(path, new_entries)
+    return path
+
+
 def _clean_empty_tails(xml: str) -> str:
     """清掉占位符被填成空串后留下的病句尾巴。
 
@@ -269,6 +312,8 @@ def _clean_empty_tails(xml: str) -> str:
             return pxml
         new = re.sub(r"[，,]\s*族", "", flat)
         new = re.sub(r"定于\s*在", "定于", new)
+        new = re.sub(r"[，,]\s*出生(?=[，,。；;\s]|$)", "", new)
+        new = re.sub(r"[，,]\s*住(?=[，,。；;\s]|$)", "", new)
         new = re.sub(r"(出生日期|身份证号|联系电话|电话|住址|手机号|地址|民族|性别)[：:]\s*(?=[，,。；;\s]|$)", "", new)
         new = re.sub(r"[，,]{2,}", "，", new)
         new = re.sub(r"[，,]\s*(?=[。；;])", "", new)
@@ -356,6 +401,9 @@ def _clean_party_punct(xml: str) -> str:
         # 压缩连续逗号（中英文）为一个
         text = re.sub(r"[，,]\s*(?=[，,])", "", text)
         text = re.sub(r"，{2,}", "，", text)
+        # {{出生日期}}出生 / 住{{地址}} 被填空后剩下的“出生”“住”前缀后缀
+        text = re.sub(r"[，,]\s*出生(?=[，,。；;\s]|$)", "", text)
+        text = re.sub(r"[，,]\s*住(?=[，,。；;\s]|$)", "", text)
         # “，。”、“， ” 收尾清理
         text = re.sub(r"[，,]\s*$", "", text)
         text = re.sub(r"[，,]\s*(住)(?=[，,。])", "", text)
@@ -370,7 +418,8 @@ def _clean_party_punct(xml: str) -> str:
     def do_para(m):
         pxml = m.group(0)
         flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S))
-        if not re.match(r"\s*(原告|被告)[：:]", flat):
+        # 原告：/被告：/申请人：/被申请人：等当事人行都要清空字段留下的多余标点
+        if not _detect_role(flat.strip()):
             return pxml
         new_text = clean_text(flat)
         # 取段落内一个普通 run 的 rPr（非加粗那个）作为重建格式
