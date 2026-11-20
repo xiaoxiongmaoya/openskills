@@ -29,6 +29,30 @@ ASSETS = SKILL_ROOT / "assets" / "templates"
 # 日期填空（__年__月__日）落在同样的横线里，必须排除，否则会把日期清掉。
 _DATE_CHARS = ("年", "月", "日", "时", "分", "元", "岁", "天", "个")
 
+# 落款日期行统一格式：可选的“日期：/提交日期：”前缀 + 全角空格占位
+SIGN_DATE = "　　　　年　　月　　日"
+_DATE_LINE = re.compile(
+    r"^(\s*(?:[^\s]{0,6}日期\s*[：:])?)[\s\u3000＿_]*年[\s\u3000＿_]*月[\s\u3000＿_]*日[\s\u3000＿_]*$")
+
+
+def normalize_date_line(text: str) -> Tuple[str, bool] | None:
+    """把各种落款日期写法统一成 `日期：　　　　年　　月　　日`。
+
+    返回 (新文本, 是否需要右对齐)；不是落款日期行则返回 None。
+    原来靠一长串空格顶到右边的情况，改成段落右对齐，不再用空格排版。
+    """
+    m = _DATE_LINE.match(text)
+    if not m:
+        return None
+    prefix = m.group(1).strip()
+    # “出生日期：   年   月   日”是当事人信息栏，不是落款，不能动
+    if "出生" in prefix:
+        return None
+    if prefix and not prefix.endswith(("：", ":")):
+        prefix += "："
+    leading = len(text) - len(text.lstrip(" \u3000"))
+    return prefix + SIGN_DATE, leading >= 6
+
 
 def _blank_name(m: "re.Match") -> str:
     text = m.group(0)
@@ -115,6 +139,11 @@ def scan_file(path: Path, rel: str) -> List[Dict[str, str]]:
         text = _para_text(pxml)
         if not text.strip():
             continue
+        norm = normalize_date_line(text)
+        if norm and norm[0] != text:
+            findings.append({"file": rel, "rule": "落款日期格式不统一",
+                             "text": text.strip()[:70]})
+            continue
         for idx, (pat, repl, desc) in enumerate(RULES):
             if idx == 3 and rel not in _CAUSE_RULE_ALLOW:
                 continue
@@ -128,6 +157,15 @@ def scan_file(path: Path, rel: str) -> List[Dict[str, str]]:
                              "text": text.strip()[:70]})
             break
     return findings
+
+
+def _set_jc_right(pxml: str) -> str:
+    """把段落设为右对齐（替换已有 jc，或注入到 pPr）。"""
+    if re.search(r'<w:jc\s+w:val="[^"]*"\s*/>', pxml):
+        return re.sub(r'<w:jc\s+w:val="[^"]*"\s*/>', '<w:jc w:val="right"/>', pxml, count=1)
+    if "<w:pPr>" in pxml:
+        return pxml.replace("<w:pPr>", '<w:pPr><w:jc w:val="right"/>', 1)
+    return pxml.replace("<w:p>", '<w:p><w:pPr><w:jc w:val="right"/></w:pPr>', 1)
 
 
 def fix_file(path: Path, rel: str) -> int:
@@ -146,10 +184,15 @@ def fix_file(path: Path, rel: str) -> int:
             if idx == 3 and rel not in _CAUSE_RULE_ALLOW:
                 continue
             new = pat.sub(repl, new)
-        if new == text:
+        right_align = False
+        norm = normalize_date_line(new)
+        if norm:
+            new, right_align = norm
+        if new == text and not right_align:
             return pxml
         changed += 1
-        return _rebuild_para(pxml, new)
+        rebuilt = _rebuild_para(pxml, new)
+        return _set_jc_right(rebuilt) if right_align else rebuilt
 
     new_xml = re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
     if changed:
