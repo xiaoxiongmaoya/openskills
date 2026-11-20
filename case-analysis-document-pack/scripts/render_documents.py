@@ -381,7 +381,8 @@ def _expand_aliases(mapping: Dict[str, str], case_dir: Path) -> None:
 
     # 角色组：无角色键被 qualify_role_placeholders 改成「原告X/被告X」后要能取到值
     for role, bucket in (("原告", "plaintiffs"), ("被告", "defendants")):
-        person = (pinfo.get(bucket) or [{}])[0] or {}
+        people = pinfo.get(bucket) or []
+        person = (people or [{}])[0] or {}
         put(f"{role}姓名", person.get("name"))
         put(f"{role}性别", person.get("sex"))
         put(f"{role}民族", person.get("nation"))
@@ -390,6 +391,35 @@ def _expand_aliases(mapping: Dict[str, str], case_dir: Path) -> None:
         put(f"{role}身份证号", person.get("id"))
         put(f"{role}手机号", person.get("phone"))
         put(f"{role}电话", person.get("phone"))
+        # 带序号的键（原告1姓名/被告2身份证号…）：任何预留多行的模板都能取到人，
+        # 不再只有诉状走 complaint_row_mapping 时才可用。
+        for idx, p in enumerate(people, 1):
+            for field, key in (("姓名", "name"), ("性别", "sex"), ("民族", "nation"),
+                               ("出生日期", "birth"), ("地址", "address"),
+                               ("身份证号", "id"), ("电话", "phone"), ("手机号", "phone")):
+                put(f"{role}{idx}{field}", p.get(key))
+
+    # 通用键从角色键回填：角色键来自 party_info（含 OCR 落库的民族/出生日期），更可靠。
+    # 早于 _expand_aliases 生成的通用键此时还是空的，必须在角色键补齐后再回填一次。
+    for common, rolekey in (("民族", "原告民族"), ("性别", "原告性别"),
+                            ("出生日期", "原告出生日期")):
+        if not mapping.get(common) and mapping.get(rolekey):
+            mapping[common] = mapping[rolekey]
+
+    # 段落键（供 {{原告民族段}} 这类模板）按回填后的值重算
+    for tag in ("原告", "被告"):
+        sex = mapping.get(f"{tag}性别") or ""
+        ethnic = mapping.get(f"{tag}民族") or ""
+        birth = mapping.get(f"{tag}出生日期") or ""
+        addr = mapping.get(f"{tag}地址") or ""
+        pid = mapping.get(f"{tag}身份证号") or ""
+        phone = mapping.get(f"{tag}电话") or ""
+        mapping[f"{tag}性别段"] = f"，{sex}" if sex else ""
+        mapping[f"{tag}民族段"] = f"，{ethnic}族" if ethnic else ""
+        mapping[f"{tag}出生段"] = f"，{birth}出生" if birth else ""
+        mapping[f"{tag}地址段"] = f"，住{addr}" if addr else ""
+        mapping[f"{tag}证件段"] = f"，身份证号：{pid}" if pid else ""
+        mapping[f"{tag}电话段"] = f"，联系电话：{phone}" if phone else ""
 
     # 立案后才知道、或由当事人手写的字段，保持空白
     for key in ("日期", "案号", "微信号"):
@@ -399,6 +429,11 @@ def _expand_aliases(mapping: Dict[str, str], case_dir: Path) -> None:
 # 内部备注/占位文案特征：这类文字绝不能印到交付给法院或当事人的文书上
 _NOTE_MARKERS = ("待律师", "待确认", "待补充", "待补", "见聊天记录", "备案登记",
                  "需律师", "据类案", "以详情为准", "OCR", "截图", "按规则")
+
+# 需要净化的字段类别：只针对身份、联系、账户、代理信息；正文一律不动
+_SANITIZE_TARGETS = ("身份", "住址", "地址", "电话", "手机", "开户", "账号", "户名",
+                     "受托人", "委托人", "承办律师", "当事人", "民族", "性别",
+                     "出生", "案由", "法院", "证件", "邮编", "邮箱", "联行号")
 
 
 def _sanitize_fields(mapping: Dict[str, str], case_dir: Path) -> None:
@@ -416,6 +451,10 @@ def _sanitize_fields(mapping: Dict[str, str], case_dir: Path) -> None:
 
     for k, v in list(mapping.items()):
         if not isinstance(v, str) or k.startswith("_"):
+            continue
+        # 只清洗身份/联系/账户这类信息性字段。正文（事实与理由、诉讼请求、申请事项、
+        # 情况说明、证据清单）里的“（见聊天记录第3页）”是正常表述，剥掉就变成残句。
+        if not any(t in k for t in _SANITIZE_TARGETS):
             continue
         text = strip_note(v).strip()
         # 清洗后只剩占位文案或说明尾巴的，一律留空
