@@ -135,12 +135,36 @@ def append_to_docx(path: Path, heading: str, paragraphs: Iterable[str], notice: 
 _ROLE_UNROLED = ("出生日期", "地址", "身份证号", "手机号", "电话", "民族",
                  "性别", "住所", "联系方式", "微信号")
 
+# 模板里各种当事人称谓 -> 数据侧角色（party_info 的原告/被告）
+_ROLE_ALIAS = {
+    "原告": "原告",
+    "被告": "被告",
+    "申请人": "原告",
+    "被申请人": "被告",
+    "申请执行人": "原告",
+    "被执行人": "被告",
+    "委托人": "原告",
+    "上诉人": "原告",
+    "被上诉人": "被告",
+    "再审申请人": "原告",
+    "被再审申请人": "被告",
+}
+
+
+def _detect_role(head: str) -> str:
+    """按段首的当事人称谓判断该段属于哪一方，长的称谓优先（申请执行人 > 申请人）。"""
+    import re
+    for name in sorted(_ROLE_ALIAS, key=len, reverse=True):
+        if re.match(r"^" + name + r"[：:]", head):
+            return _ROLE_ALIAS[name]
+    return ""
+
 
 def qualify_role_placeholders(path: Path) -> Path:
-    """把「被申请人/被执行人/被告」段落里的无角色占位符改写成「被告X」。
+    """把「被申请人/被执行人/被告」等段落里的无角色占位符改写成「被告X」「原告X」。
 
-    模板两段共用 {{地址}} 这类键时，统一取值会导致被申请人栏填进申请人的信息。
-    这里按段落角色给被告段加前缀（{{地址}} -> {{被告地址}}），正文其余部分不动。
+    模板两段共用 {{地址}} 这类键时统一取值会导致被申请人栏填进申请人的信息。
+    这里按段落角色加前缀（{{地址}} -> {{被告地址}}），正文其余部分不动。
     """
     import re
     path = Path(path)
@@ -157,15 +181,12 @@ def qualify_role_placeholders(path: Path) -> Path:
         def do_para(m: "re.Match") -> str:
             pxml = m.group(0)
             flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S))
-            head = flat.strip()
-            # 只处理“被申请人/被执行人/被告”开头的段落；原告段用通用键即可
-            if not re.match(r"^(被申请人|被执行人|被告[：:])", head):
-                return pxml
-            if "{{" not in flat:
+            role = _detect_role(flat.strip())
+            if not role or "{{" not in flat:
                 return pxml
             new_flat = flat
             for k in _ROLE_UNROLED:
-                new_flat = new_flat.replace("{{" + k + "}}", "{{被告" + k + "}}")
+                new_flat = new_flat.replace("{{" + k + "}}", "{{" + role + k + "}}")
             if new_flat == flat:
                 return pxml
             ppr = re.search(r"<w:pPr>.*?</w:pPr>", pxml, re.S)

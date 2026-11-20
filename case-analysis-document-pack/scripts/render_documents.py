@@ -306,7 +306,55 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
         "court": court, "cause": cause, "amount": amount, "agent": agent_name, "firm": firm,
     }, ensure_ascii=False)
     _sanitize_fields(mapping, case_dir)
+    _expand_aliases(mapping, case_dir)
     return mapping
+
+
+def _expand_aliases(mapping: Dict[str, str], case_dir: Path) -> None:
+    """按模板实际用词补齐同义键，避免换个说法就填不上、或串用别人的信息。
+
+    实战模板对同一含义有多种写法（手机号/电话/联系电话/联系手机号码，
+    开户行/开户银行，账号/收款账号/银行账号）。这里统一补齐，只填空位不覆盖已有值。
+    """
+    def put(key: str, value: Any) -> None:
+        if value and not mapping.get(key):
+            mapping[key] = str(value)
+
+    pl_phone = mapping.get("联系方式") or mapping.get("手机号") or ""
+    put("联系电话", pl_phone)
+    put("联系手机号码", pl_phone)
+    put("开户银行", mapping.get("开户行"))
+    put("收款账号", mapping.get("账号") or mapping.get("银行账号"))
+    put("当事人", mapping.get("原告"))
+
+    try:
+        pinfo = pi.load(case_dir)
+    except Exception:
+        pinfo = {}
+    pl = pinfo.get("primary_plaintiff") or {}
+    raw = pl.get("raw") if isinstance(pl.get("raw"), dict) else {}
+    put("邮编", raw.get("邮编"))
+    put("电子邮箱", raw.get("电子邮箱") or raw.get("邮箱"))
+    put("联行号", raw.get("联行号") or pl.get("联行号"))
+    put("律师事务所", raw.get("律师事务所") or mapping.get("律师事务所"))
+    put("承办律师", raw.get("承办律师") or mapping.get("承办律师"))
+    put("公司名称", raw.get("公司名称"))
+
+    # 角色组：无角色键被 qualify_role_placeholders 改成「原告X/被告X」后要能取到值
+    for role, bucket in (("原告", "plaintiffs"), ("被告", "defendants")):
+        person = (pinfo.get(bucket) or [{}])[0] or {}
+        put(f"{role}姓名", person.get("name"))
+        put(f"{role}性别", person.get("sex"))
+        put(f"{role}民族", person.get("nation"))
+        put(f"{role}出生日期", person.get("birth"))
+        put(f"{role}地址", person.get("address"))
+        put(f"{role}身份证号", person.get("id"))
+        put(f"{role}手机号", person.get("phone"))
+        put(f"{role}电话", person.get("phone"))
+
+    # 立案后才知道、或由当事人手写的字段，保持空白
+    for key in ("日期", "案号", "微信号"):
+        mapping.setdefault(key, "")
 
 
 # 内部备注/占位文案特征：这类文字绝不能印到交付给法院或当事人的文书上
@@ -463,6 +511,12 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             if not p.strip():
                 continue
             if any(t in p for t in ("签字", "捺印", "盖章")):
+                out.append(p)
+                continue
+            # 多行正文、或不以「标签：」开头的段落，整段原样保留。
+            # 否则证据清单这类纯文本会被当成「标签：值」解析，只留下含冒号的那一行。
+            if "\n" in p.strip() or not _re.match(
+                    r"^\s*[\u4e00-\u9fa5A-Za-z/（）()]{1,12}[：:]", p):
                 out.append(p)
                 continue
             pairs = [(lab.strip(), clean(val)) for lab, val in pair_re.findall(p)]
