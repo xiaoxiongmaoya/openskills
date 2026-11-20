@@ -1,12 +1,12 @@
 # 模板来源与登记（本地实战模板包）
 
-**唯一来源**：技能自带 `assets/templates/`（律师实务模板包，44 条登记：33 份 docx + 11 份 .doc 原件，按 10 类子目录存放）。
+**唯一来源**：技能自带 `templates/`（律师实务模板包，44 条登记：33 份 docx + 11 份 .doc 原件，平铺存放（商店层级限制））。
 **没有下载、没有骨架生成、没有联网**。缺模板直接报错，禁止伪造替代文件。
 
 ## 目录
 
 ```text
-case-analysis-document-pack/assets/templates/
+case-analysis-document-pack/templates/
   <32 个 .docx>     已脱敏，随仓库分发（status=local_practice）
   _raw_doc/         # 12 个 .doc 原件（含真实信息，gitignore，仅本机）
 ```
@@ -17,7 +17,7 @@ case-analysis-document-pack/assets/templates/
 
 ## 普通版诉状从哪来
 
-`assets/templates/01-起诉与答辩/民事起诉状（普通版）.docx` 不是脱敏产物，是 `scripts/build_complaint_ordinary.py` 从原始包 `诉状模板(1)(1).doc` 生成的：
+`templates/01-起诉与答辩/民事起诉状（普通版）.docx` 不是脱敏产物，是 `scripts/build_complaint_ordinary.py` 从原始包 `诉状模板(1)(1).doc` 生成的：
 
 - 原文件是空白表单（姓名、证件、金额本来就空），实为 docx 改后缀，可直接改 XML；
 - 逐段替换文字、保留原段落样式（仿宋、行距、首行缩进），题名居中，具状人与日期右对齐；
@@ -88,8 +88,8 @@ case-analysis-document-pack/assets/templates/
 复现与自查：
 
 ```bash
-python scripts/pack_templates.py sanitize --raw _raw_doc --out assets/templates
-python scripts/pack_templates.py scan --dir assets/templates      # 应输出 dirty = {}
+python scripts/pack_templates.py sanitize --raw _raw_doc --out templates
+python scripts/pack_templates.py scan --dir templates      # 应输出 dirty = {}
 ```
 
 `scan` 走同一套规则，改完脱敏逻辑必须重跑；**残留不是 0 就别推仓库**。
@@ -160,7 +160,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 <工作空间根>/通用件/模板/
   01-起诉与答辩/
   02-立案通用件/
-  ...（与 assets/templates 同构，含分类子目录）
+  ...（与技能 templates/ 同名平铺）
   来源登记.json
 ```
 
@@ -190,7 +190,7 @@ python scripts/pack_templates.py scan --dir assets/templates      # 应输出 di
 
 | 层 | 路径 | 权限 |
 | --- | --- | --- |
-| 源模板 | `assets/templates/` | 只读，脚本永不写入 |
+| 源模板 | `templates/` | 只读，脚本永不写入 |
 | 工作副本 | `<根>/通用件/模板/` | 复制后 `chmod 444`，Word/WPS 存不进去 |
 | 文书产物 | `<案件目录>/04未签稿/` | 可写，全部填充发生在这里 |
 
@@ -203,7 +203,7 @@ python scripts/manage_templates.py --root "<根>" --restore
 python scripts/manage_templates.py --root "<根>" --unlock
 ```
 
-要改模板内容：改 `assets/templates/` 源文件（先 `pack_templates.py sanitize` 重建脱敏集），
+要改模板内容：改 `templates/` 源文件（先 `pack_templates.py sanitize` 重建脱敏集），
 再 `--restore` 覆盖已分发副本。**不要在通用件/模板 里手改，改了下一次 verify 就红。**
 
 ## 注入方式

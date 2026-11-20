@@ -3,16 +3,16 @@
 """通用模板库：从技能自带的实战模板包复制到 <工作空间根>/通用件/模板/ 并登记。
 
 **硬规矩（不可违反）：模板不得修改，一律复制副本再使用。**
-- 源 `assets/templates/` 只读，脚本永不写入；
+- 源 `templates/`（平铺）只读，脚本永不写入；
 - 副本落 `通用件/模板/` 后立即 chmod 444，Word/WPS 存不进去；
 - 副本被改过 → `--verify` 报「副本被修改」，`--restore` 用源覆盖回原样；
 - 所有生成文书都是 `04未签稿/` 里的副本，绝不在模板上原地填充。
 
 设计变更（2026-11-19）：
-- 删除“官网下载 + 生成骨架”那一套。模板只认 `assets/templates/`（律师实战模板包，
+- 删除“官网下载 + 生成骨架”那一套。模板只认 `templates/`（律师实战模板包，
   已脱敏，随技能分发），缺文件直接报错，不再伪造任何模板。
 - 原始 .doc 模板（含真实当事人信息）放在技能目录 `_raw_doc/`，已 gitignore，
-  仅本机可用；仓库分发的只有脱敏版 `assets/templates/`。
+  仅本机可用；仓库分发的只有脱敏版 `templates/`（平铺，商店层级限制）。
 - 12 个 .doc 旧二进制格式无法无损脱敏，只在本机原始包里命中时可用，
   登记状态标 `local_practice_raw_doc`，渲染时只复制原件、不注入内容。
 
@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 SKILL_DIR = Path(__file__).resolve().parent.parent
-ASSETS = SKILL_DIR / "assets" / "templates"
+ASSETS = SKILL_DIR / "templates"
 # 原始 .doc 模板（含真实当事人信息）不入库，放在技能目录内并 gitignore
 RAW_ASSETS = SKILL_DIR / "_raw_doc"
 
@@ -381,11 +381,13 @@ def _save_registry(template_dir: Path, registry: Dict[str, Any]) -> None:
 
 
 def source_path(src: str, file: str = "") -> Optional[Path]:
-    """先找脱敏版（assets/templates/<分类>/<规范名>），再找本机原始包（_raw/<原文件名>）。
+    """先找脱敏版（templates/<规范名>，平铺），再找本机原始包（_raw_doc/<原文件名>）。
 
-    规范名与分类由 `TEMPLATES[key]["file"]` 决定；_raw 里保留模板包原名，不改动。
+    `TEMPLATES[key]["file"]` 里的分类前缀只用于工作空间副本的目标路径；
+    技能包内模板源已平铺到 templates/ 一级目录（商店要求最多两级），
+    因此这里按文件名查找。_raw_doc 里保留模板包原名，不改动。
     """
-    candidates = [ASSETS / file] if file else []
+    candidates = [ASSETS / Path(file).name] if file else []
     candidates.append(RAW_ASSETS / src)
     for candidate in candidates:
         if candidate.is_file() and candidate.stat().st_size > 0:
@@ -435,7 +437,7 @@ def ensure_template(root: Path, key: str, registry: Dict[str, Any]) -> Dict[str,
     """把模板复制到通用件/模板/ 并设为只读。
 
     硬规矩：模板不得修改。这里做三件事——
-    1. 只在副本上落盘，源文件（assets/templates）永不写；
+    1. 只在副本上落盘，源文件（templates）永不写；
     2. 复制后 chmod 444，Word/WPS 无法原地保存；
     3. 发现副本 hash 跟源不一致（被改过）→ 删掉重拷，登记 restored=true。
     """

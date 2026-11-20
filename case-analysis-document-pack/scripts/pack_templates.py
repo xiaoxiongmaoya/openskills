@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把律师实战模板包脱敏后打包进技能 assets/templates/。
+"""把律师实战模板包脱敏后打包进技能 templates/（平铺）。
 
 原始模板来自真实案件（含当事人姓名、身份证号、手机号、银行账号、案号、
 住址、公司名），**禁止原样入库**。
@@ -12,8 +12,8 @@
 - .doc 旧二进制格式无法无损脱敏，一律跳过，不上仓库（留 _raw 本地用）。
 
 用法：
-  python scripts/pack_templates.py sanitize --raw assets/templates/_raw --out assets/templates
-  python scripts/pack_templates.py scan --dir assets/templates
+  python scripts/pack_templates.py sanitize --raw _raw_doc --out templates
+  python scripts/pack_templates.py scan --dir templates
 """
 from __future__ import annotations
 
@@ -387,7 +387,7 @@ def scan(path: Path) -> Dict[str, int]:
 
 
 def _target_map() -> Dict[str, str]:
-    """原包文件名 -> assets/templates 下的规范相对路径（唯一来源：manage_templates 登记表）。"""
+    """原包文件名 -> templates 下的规范文件名（唯一来源：manage_templates 登记表）。"""
     sys.path.insert(0, str(Path(__file__).resolve().parent))
     try:
         import manage_templates as mt

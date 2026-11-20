@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 SKILL_ROOT = Path(__file__).resolve().parent.parent
-ASSETS = SKILL_ROOT / "assets" / "templates"
+ASSETS = SKILL_ROOT / "templates"
 
 # 横线上残留的人名：___张三___ -> 空横线，交回给律师手填。
 # 日期填空（__年__月__日）落在同样的横线里，必须排除，否则会把日期清掉。
@@ -210,7 +210,7 @@ def list_templates(root: Path) -> List[Tuple[Path, str]]:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="模板体检/净化")
-    ap.add_argument("--root", default="", help="模板根目录，默认用技能自带 assets/templates")
+    ap.add_argument("--root", default="", help="模板根目录，默认用技能自带 templates")
     ap.add_argument("--scan", action="store_true", help="只体检")
     ap.add_argument("--fix", action="store_true", help="按规则修复")
     args = ap.parse_args()

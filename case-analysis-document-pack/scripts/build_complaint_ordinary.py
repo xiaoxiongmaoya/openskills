@@ -18,10 +18,10 @@ import zipfile
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-ASSETS = HERE.parent / "assets" / "templates"
+ASSETS = HERE.parent / "templates"
 RAW_DIR = HERE.parent / "_raw_doc"
 DEFAULT_RAW = RAW_DIR / "诉状模板(1)(1).doc"
-DEFAULT_OUT = ASSETS / "01-起诉与答辩" / "民事起诉状（普通版）.docx"
+DEFAULT_OUT = ASSETS / "民事起诉状（普通版）.docx"
 
 PH = "{{%s}}"
 
