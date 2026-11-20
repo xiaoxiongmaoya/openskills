@@ -989,10 +989,24 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             lines.append(f"- `{doc['file']}` → 应填内容见 `{doc['fill_guide']}`")
     lines += ["", "## 需客户/律师补充 or 签字盖章"]
     lines += [f"- {item}" for item in client_items]
-    # 材料提取件里标记为待核对的（如手写卡号易误读），强制提示与原件核对
-    verify = pi.load(case_dir).get("待核对") or []
+    # 材料提取件里标记为待核对的（如手写卡号易误读），强制提示与原件核对。
+    # 但若该字段后来已补全（如身份证 OCR 通过校验位），改写为「已补全」，避免过时提示误导律师。
+    pinfo_check = pi.load(case_dir)
+    pl0 = (pinfo_check.get("plaintiffs") or [{}])[0] or {}
+    df_ids = [d.get("id") for d in (pinfo_check.get("defendants") or []) if d.get("id")]
+    verify = pinfo_check.get("待核对") or []
     for item in verify:
-        lines.append(f"- 【务必核对原件】{item}")
+        s = str(item)
+        if "身份证号" in s and ("补入" in s or "不提取" in s or "待" in s):
+            if "原告" in s and pl0.get("id"):
+                lines.append(f"- 【已补全】原告身份证号已从身份证截图识别"
+                             f"（{pl0['id']}，校验位通过），签字前核对原件")
+                continue
+            if "被告" in s and df_ids:
+                lines.append(f"- 【已填待核归属】被告身份证号已填 {df_ids[0]}，"
+                             f"仍需确认归属哪位被告，签字前核对原件")
+                continue
+        lines.append(f"- 【务必核对原件】{s}")
     extra = doc_slots.extra_copy_for("账户确认书")
     if extra:
         lines.append(f"- 账户确认书需双投到「{extra}」槽位，由后续立案 Skill 处理；本 Skill 不上传。")

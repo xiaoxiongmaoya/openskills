@@ -84,8 +84,16 @@ def check(case_dir: Path, analysis: Dict[str, Any] | None = None,
     item("原告身份信息", bool(_filled(summary.get("plaintiff_id"))), "warning", "补证件号/统一社会信用代码")
     item("原告地址/电话", bool(_filled(summary.get("plaintiff_address")) and _filled(summary.get("plaintiff_phone"))),
          "warning", "送达地址确认书和立案信息需要")
-    item("被告身份信息", bool(_filled(summary.get("defendant_id"))), "critical",
-         "补被告身份证号/统一社会信用代码；仅有姓名和手机号无法立案")
+    # 被告身份：逐人判断并指出缺谁，不笼统说「仅有姓名和手机号」（可能只有一个被告缺证件号）
+    try:
+        import party_info as _pi
+        _defs = _pi.load(case_dir).get("defendants") or []
+    except Exception:
+        _defs = []
+    _missing_def = [str(d.get("name") or "未具名") for d in _defs if not _text(d.get("id"))]
+    item("被告身份信息", bool(_filled(summary.get("defendant_id"))) and not _missing_def, "critical",
+         ("补被告身份证号/统一社会信用代码；缺：" + "、".join(_missing_def)) if _missing_def
+         else "补被告身份证号/统一社会信用代码；仅有姓名和手机号无法立案")
 
     sourced = [f for f in facts if isinstance(f, dict)
                and isinstance(f.get("source"), dict)
