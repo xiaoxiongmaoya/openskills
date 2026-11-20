@@ -37,6 +37,7 @@ B. 多当事人（新写法，推荐）
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -45,15 +46,35 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
+def _fmt_birth(text: str) -> str:
+    """把各种出生日期写法统一成诉状用的「YYYY年M月D日」。
+
+    接受 1985-11-12 / 1985/11/12 / 19851112 / 1985年11月12日；
+    年月日缺一不可，识别不出原样返回（由调用方决定是否留空）。
+    """
+    s = str(text or "").strip()
+    if not s:
+        return ""
+    m = re.search(r"(\d{4})\s*[-/年.]\s*(\d{1,2})\s*[-/月.]\s*(\d{1,2})", s)
+    if not m:
+        m = re.fullmatch(r"(\d{4})(\d{2})(\d{2})", s)
+    if not m:
+        return s
+    y, mo, d = m.group(1), int(m.group(2)), int(m.group(3))
+    if not (1 <= mo <= 12 and 1 <= d <= 31):
+        return s
+    return f"{y}年{mo}月{d}日"
+
+
 def _birth_from_id(idno: str) -> str:
-    """从 18 位身份证号第 7-14 位推导出生日期（YYYY-MM-DD）；不可靠则返回空串。"""
+    """从 18 位身份证号第 7-14 位推导出生日期（YYYY年M月D日）；不可靠则返回空串。"""
     s = str(idno or "").strip()
     if len(s) != 18 or not s[:17].isdigit():
         return ""
     y, m, d = s[6:10], s[10:12], s[12:14]
     if not (y.isdigit() and m.isdigit() and d.isdigit()):
         return ""
-    return f"{y}-{m}-{d}"
+    return _fmt_birth(f"{y}-{m}-{d}")
 
 
 def _sex_from_id(idno: str) -> str:
@@ -68,7 +89,7 @@ def _norm_one(item: Dict[str, Any], role: str) -> Dict[str, str]:
     idno = str(item.get("身份证号") or "").strip()
     # 性别/出生日期：优先显式给值，否则从身份证号推导；民族不能推导，只取显式值（无则留空）
     sex = str(item.get("性别") or "").strip() or _sex_from_id(idno)
-    birth = str(item.get("出生日期") or "").strip() or _birth_from_id(idno)
+    birth = _fmt_birth(str(item.get("出生日期") or "").strip()) or _birth_from_id(idno)
     return {
         "role": role,
         "name": str(item.get("姓名") or item.get("原告") or item.get("被告") or "").strip(),

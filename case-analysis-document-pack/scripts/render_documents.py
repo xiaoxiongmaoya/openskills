@@ -54,6 +54,27 @@ def _amount_display(amount: str) -> str:
     return text
 
 
+def _debt_label(cause: str) -> str:
+    """按案由给出诉请里的债务性质措辞，让「支付拖欠的X」读起来像人话。"""
+    c = str(cause or "")
+    rules = (
+        (("劳务",), "劳务报酬"),
+        (("劳动", "追索劳动报酬"), "劳动报酬"),
+        (("买卖", "货款", "供销"), "货款"),
+        (("借贷", "借款"), "借款本金"),
+        (("租赁",), "租金"),
+        (("建设工程", "工程款", "施工"), "工程款"),
+        (("承揽", "加工"), "报酬"),
+        (("运输",), "运输费"),
+        (("服务",), "服务费"),
+        (("不当得利",), "款项"),
+    )
+    for keys, label in rules:
+        if any(k in c for k in keys):
+            return label
+    return "款项"
+
+
 def _has_lawyer_fee_evidence(case_dir: Path) -> bool:
     """证据包是否含律师费支付凭证（据此决定是否把律师费列入诉请，不靠手写）。"""
     pkg = _load(case_dir / "05案件信息" / "evidence_package.json")
@@ -88,32 +109,44 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
     cause = str(summary.get("cause") or (spec.get("case") or {}).get("cause") or "（待确认）")
     amount = str(summary.get("amount") or (spec.get("case") or {}).get("amount") or "（待确认）")
     court = str(summary.get("court") or "（待确认，管辖由律师确认）")
+    # 诉状「此致」栏只写法院名，剥掉“（被告住所地，德阳广汉）”这类内部说明
+    court = re.sub(r"[（(][^（）()]*[)）]\s*$", "", court).strip() or court
 
-    # 诉讼请求：优先用结构化 claims（列表或分号文本），否则按规则由标的额+律师费凭证自动组装。
-    # 规则固化在此，Agent 不再手写诉状正文。编号自动生成，无金额项不写。
+    # 诉讼请求：骨架由规则固定生成，保证每次出稿措辞一致（Agent 不再手写正文）。
+    # findings.claims 只用于补充规则未覆盖的额外请求，不覆盖骨架措辞。
     raw_claims = summary.get("claims") or (spec.get("claims") or {}).get("ssqq") or []
     if isinstance(raw_claims, str):
-        claim_items = [c.strip() for c in re.split(r"[\n；;]", raw_claims) if c.strip()]
+        extra_candidates = [c.strip() for c in re.split(r"[\n；;]", raw_claims) if c.strip()]
     elif isinstance(raw_claims, list):
-        claim_items = [str(c).strip() for c in raw_claims if str(c).strip()]
+        extra_candidates = [str(c).strip() for c in raw_claims if str(c).strip()]
     else:
-        claim_items = []
-    if not claim_items:
-        # 无结构化诉请时按标的额与律师费凭证兜底（仍不编造金额）
-        claim_items = []
-        if amount and amount not in ("（待确认）", "（待补充）"):
-            claim_items.append(f"判令被告向原告支付{_amount_display(amount)}")
-        if _has_lawyer_fee_evidence(case_dir):
-            claim_items.append("判令被告承担原告为实现债权支出的律师费（以票据金额为准）")
-        claim_items.append("本案诉讼费用由被告承担")
-    # 统一去除已有编号前缀后重新编号
-    cleaned_claims = []
-    for c in claim_items:
-        c = re.sub(r"^\s*\d+[.、．]\s*", "", c)
-        c = c.rstrip("；;。")
-        if c:
-            cleaned_claims.append(c)
-    claim_text = "\n".join(f"{i}. {c}；" for i, c in enumerate(cleaned_claims, 1))
+        extra_candidates = []
+
+    claim_items: List[str] = []
+    if amount and amount not in ("（待确认）", "（待补充）", "（待确认金额）"):
+        claim_items.append(f"判令被告向原告支付拖欠的{_debt_label(cause)}{_amount_display(amount)}")
+    if _has_lawyer_fee_evidence(case_dir):
+        claim_items.append("判令被告承担原告为实现债权支出的律师费（以票据金额为准）")
+    claim_items.append("本案诉讼费用由被告承担")
+
+    # 追加规则未覆盖的额外请求（如违约金、确认之诉）：已含支付/承担/诉讼费等骨架语义的丢弃
+    skeleton_kw = ("支付", "拖欠", "律师费", "诉讼费", "诉讼费用", "承担本案")
+    for c in extra_candidates:
+        c = re.sub(r"^\s*\d+[.、．]\s*", "", c).strip().rstrip("；;。")
+        if c and not any(k in c for k in skeleton_kw):
+            claim_items.append(c)
+
+    # 前 n-1 条用分号，最后一条用句号；编号统一重排
+    cleaned_claims = [c.rstrip("；;。") for c in claim_items if c.strip()]
+    claim_text = "\n".join(
+        f"{i}. {c}{'；' if i < len(cleaned_claims) else '。'}"
+        for i, c in enumerate(cleaned_claims, 1)
+    )
+    # 兼容读取分条的模板占位符（{{诉讼请求1}}/{{诉讼请求2}}…）
+    claim_parts = [
+        f"{i}. {c}{'；' if i < len(cleaned_claims) else '。'}"
+        for i, c in enumerate(cleaned_claims, 1)
+    ]
 
     # 事实与理由：由 facts 自动串成叙事段，剔除内部来源/置信度标注；无事实则留空。
     facts = analysis.get("facts") or []
@@ -190,8 +223,10 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
         "受理法院": court,
         "案由": cause,
         "诉讼请求": claim_text,
-        "诉讼请求1": claim_text.splitlines()[0] if claim_text else "（待补充）",
-        "诉讼请求2": "详见事实与理由",
+        "诉讼请求1": claim_parts[0] if len(claim_parts) > 0 else "",
+        "诉讼请求2": claim_parts[1] if len(claim_parts) > 1 else "",
+        "诉讼请求3": claim_parts[2] if len(claim_parts) > 2 else "",
+        "诉讼请求4": claim_parts[3] if len(claim_parts) > 3 else "",
         "执行请求": claim_text,
         "执行依据": str(summary.get("enforcement_basis") or "（待补充：生效判决书/调解书及生效证明）"),
         "事实与理由": facts_text,
@@ -413,14 +448,20 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             lines = [str(agent.get("诉讼请求1") or "").strip(),
                      str(agent.get("诉讼请求2") or "").strip()]
             agent.setdefault("诉讼请求", "\n".join(x for x in lines if x))
-        merged = {**base, **{k: v for k, v in agent.items() if isinstance(v, str)}}
-        # 无值/占位文案一律留空
+        merged = {**base, **{k: v for k, v in agent.items()
+                             if isinstance(v, str) and not str(k).startswith("_")}}
+        # 诉讼请求/案由/受理法院以规则与分析结果为准，禁止手写 JSON 覆盖：
+        # 这三项是「每次出稿必须一致」的骨架，措辞由脚本按案情生成。
+        for k in ("诉讼请求", "案由", "受理法院"):
+            if str(base.get(k) or "").strip():
+                merged[k] = base[k]
+        # 无值/占位文案一律留空（含“（待确认，管辖由律师确认）”这类长串）
         blank_tokens = ("（待补充）", "(待补充)", "（待确认）", "(待确认)",
                         "待补充", "待确认", "（待补", "详见事实与理由")
         clean: Dict[str, str] = {}
         for k, v in merged.items():
             text = str(v or "").strip()
-            if text in blank_tokens:
+            if any(text == t or text.startswith(t) for t in blank_tokens):
                 text = ""
             clean[k] = text
         return clean

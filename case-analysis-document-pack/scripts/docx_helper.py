@@ -217,6 +217,60 @@ def _clean_party_punct(xml: str) -> str:
     return re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
 
 
+def _expand_multiline_paragraphs(xml: str, mapping: Dict[str, str]) -> str:
+    """把「单占位符段落」的多行值拆成多个独立段落。
+
+    诉状里诉讼请求要一条一段（各自首行缩进、独立编号），靠 <w:br/> 软换行
+    在同一段里堆着不成样子。这里在填充前把段落按 \\n 拆开，逐行生成同格式段落。
+    """
+    import re
+
+    def do_para(m: "re.Match") -> str:
+        pxml = m.group(0)
+        flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S))
+        toks = re.findall(r"\{\{([^}]+)\}\}", flat)
+        if len(toks) != 1:  # 只处理独占一段的单占位符
+            return pxml
+        val = str(mapping.get(toks[0]) or "")
+        if "\n" not in val:
+            return pxml
+        lines = [ln.strip() for ln in val.split("\n") if ln.strip()]
+        if len(lines) <= 1:
+            return pxml
+        ppr = re.search(r"<w:pPr>.*?</w:pPr>", pxml, re.S)
+        ppr = ppr.group(0) if ppr else ""
+        rpr = ""
+        for r in re.findall(r"<w:r(?:\s[^>]*)?>.*?</w:r>", pxml, re.S):
+            rp = re.search(r"<w:rPr>.*?</w:rPr>", r, re.S)
+            if rp:
+                rpr = rp.group(0)
+                break
+        return "".join(
+            f'<w:p>{ppr}<w:r>{rpr}<w:t xml:space="preserve">{_esc(ln)}</w:t></w:r></w:p>'
+            for ln in lines
+        )
+
+    return re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
+
+
+def _align_signature_right(xml: str) -> str:
+    """具状人、年月日落款右对齐（诉状惯例，模板默认是左对齐）。"""
+    import re
+
+    def do_para(m: "re.Match") -> str:
+        pxml = m.group(0)
+        flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", pxml, re.S)).strip()
+        if not re.match(r"^(具状人|年\s*月\s*日)", flat):
+            return pxml
+        if re.search(r'<w:jc\s+w:val="[^"]*"\s*/>', pxml):
+            return re.sub(r'<w:jc\s+w:val="[^"]*"\s*/>', '<w:jc w:val="right"/>', pxml, count=1)
+        if "<w:pPr>" in pxml:
+            return pxml.replace("<w:pPr>", '<w:pPr><w:jc w:val="right"/>', 1)
+        return pxml.replace("<w:p>", '<w:p><w:pPr><w:jc w:val="right"/></w:pPr>', 1)
+
+    return re.sub(r"<w:p[ >](?:(?!</w:p>).)*?</w:p>", do_para, xml, flags=re.S)
+
+
 def fill_complaint_rows(path: Path, plaintiff_count: int, defendant_count: int,
                         mapping: Dict[str, str], row_capacity: int = 2) -> Path:
     """按当事人数量填充“一人一行”的诉状模板，并删除多余的空行。
@@ -248,6 +302,8 @@ def fill_complaint_rows(path: Path, plaintiff_count: int, defendant_count: int,
             return xml_text
         xml = drop_rows(xml, "原告", plaintiff_count)
         xml = drop_rows(xml, "被告", defendant_count)
+        # 多行值（诉讼请求逐条）先拆成独立段落，再逐段填充
+        xml = _expand_multiline_paragraphs(xml, mapping)
         # 再替换所有占位符（含被保留行的语义键与单值键），无值留空
         flat = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", xml, re.S))
         for key in set(re.findall(r"\{\{([^}]+)\}\}", flat)):
@@ -258,6 +314,8 @@ def fill_complaint_rows(path: Path, plaintiff_count: int, defendant_count: int,
         # 清理当事人行里因空字段留下的多余标点（如“，住，身份证号：，”），
         # 只对含“原告：/被告：”的段落做，避免误伤正文。
         xml = _clean_party_punct(xml)
+        # 落款右对齐
+        xml = _align_signature_right(xml)
         new_entries.append((info, xml.encode("utf-8")))
     _write_entries(path, new_entries)
     return path
