@@ -22,6 +22,8 @@ if OLD_SCRIPTS.exists():
 from read_office_text import clean, read_doc, read_docx  # noqa: E402
 
 IMG_EXT = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
+# 语义名副本（rename_images.py 生成）跳过，原件才是证据来源 key
+SEMANTIC_PREFIX = "语义_"
 DOC_EXT = {".doc", ".docx"}
 TXT_EXT = {".txt", ".md"}
 
@@ -181,6 +183,8 @@ def _collect_inputs(case_dir: Path, source: Optional[Path]) -> Tuple[List[Path],
         paths = [root] if root.is_file() else sorted(root.rglob("*"))
         for p in paths:
             if not p.is_file() or any(part.startswith(".") for part in p.parts):
+                continue
+            if p.name.startswith(SEMANTIC_PREFIX):
                 continue
             rp = p.resolve()
             if rp in seen:

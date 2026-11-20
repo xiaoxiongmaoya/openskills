@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -96,6 +97,11 @@ def guess_target(path: Path) -> Tuple[Optional[str], Optional[str]]:
         slot = 2
         label = "被告身份证" if ("被告" in parent or "被告" in stem) else "原告身份证"
     if not label:
+        # 聊天截图（企业微信/微信导出）：无语义槽位，但应自动归到图片件，
+        # 保留原文件名（parse_chat_records / image_labels 以原名为 key，改名会断链）。
+        if ext in IMG_EXT and ("企业微信图片" in stem or "微信图片" in stem
+                               or re.match(r"^(img|mmexport|wx_camera)", stem, re.I)):
+            return D_IMG, path.name
         return None, None
 
     page = ""

@@ -93,8 +93,17 @@ python scripts/parse_chat_records.py --case-dir "<案件目录>"
 
 # 3.1 ★必做★ 逐张看截图并标注用途（身份证/银行卡/送达地址/还款记录等）
 # OCR 不可用时 parse 会把图片标“需人工核对”，绝不能就此跳过——必须 Agent 逐张 ViewImage，
-# 把用途写进 05案件信息/image_labels.json（键=03图片件/xxx.jpg，值={"用途","类型","证据价值"}）。
+# 把用途写进 05案件信息/image_labels.json
+#   键=03图片件/xxx.jpg，值={"用途","类型","证据价值","建议文件名"}。
+#   「建议文件名」可选：给该图起语义名（不含扩展名/前缀），如 "01-判决书首页"、
+#   "03-被告身份证-人像面"，供 3.1b 生成人能一眼看懂的副本名。
 python scripts/label_images.py --case-dir "<案件目录>"      # 未标注则退出码 1
+
+# 3.1b 可选：按「建议文件名」生成语义名副本（原件保留，引用不断链）
+python scripts/rename_images.py --case-dir "<案件目录>" --dry-run   # 先看计划
+python scripts/rename_images.py --case-dir "<案件目录>"             # 生成「语义_XXX.jpg」副本
+# 副本前缀「语义_」，label_images/parse 自动跳过；原件仍是 chat_evidence/image_labels 的 key。
+# 清理副本：rename_images.py --case-dir "<案件目录>" --clean
 
 # 3.2 整理证据包 + 证据目录（按证明目的分组，无关/存疑单列）
 python scripts/build_evidence_package.py --case-dir "<案件目录>"
@@ -103,7 +112,10 @@ python scripts/build_evidence_package.py --case-dir "<案件目录>"
 #     {"case_summary": {"cause": "劳务合同纠纷"}, "dispute_focus": [{"focus": "是否存在事实劳务合同关系"}]}
 #     争点写成“争什么”的短句，不要写当事人姓名 —— 它会直接进第三方检索词
 
-# 4 双源法律/案例检索：一键生成 4 份调用参数（按案由+争点自动出词，当事人姓名脱敏）
+# 4 双源法律/案例检索：一键生成调用参数（按案由+争点自动出词，当事人姓名脱敏）
+#   执行案件（case_type=zx）只检索法条、不检索类案：执行依据为生效判决，
+#   类案检索命中的多是「追加被执行人」等无关裁判，无参考价值且多耗 2 次 MCP。
+#   plan/ingest-all 会自动读 spec.case_type 决定只跑 law 还是 law+case。
 #   前置：Agent 已经读完材料，先把 case_summary.cause 与 dispute_focus 落成
 #   06运行记录/agent_findings.json（只写这两项也行），检索词从它生成；不写则回退到 --cause/--focus
 python scripts/yuandian_search.py probe --case-dir "<案件目录>" \
@@ -138,6 +150,8 @@ python scripts/confirm_gate.py --case-dir "<案件目录>" --confirm --complaint
 # 模板只来自技能自带实战包 assets/templates/，复制到 <工作空间根>/通用件/模板/；缺失即报错
 python scripts/manage_templates.py --root "<工作空间根>" --case-type sp --cause "民间借贷纠纷"
 python scripts/render_documents.py --case-dir "<案件目录>" --case-type sp
+# 证据目录默认不生成。需要时：--with-evidence，或 --only evidence 单独出
+# python scripts/render_documents.py --case-dir "<案件目录>" --case-type sp --with-evidence
 
 # 10 离线门禁（不联网、不建档）
 python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
@@ -191,8 +205,9 @@ python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
 
 ## 输出清单
 
-- **一审 sp**：起诉状（按案由取模板，模板标题自带案由，不填 `{{案由}}`）、送达地址确认书、**当事人银行账户确认书**（bank_account 表格版，不用诉讼费退费版）、证据目录、授权委托书（有代理时）、提交材料清单.md。
-- **执行 zx**：强制执行申请书、送达地址确认书、收款账户确认书、证据目录、授权委托书（有代理时）、提交材料清单.md。
+- **一审 sp**：起诉状（按案由取模板，模板标题自带案由，不填 `{{案由}}`）、送达地址确认书、**当事人银行账户确认书**（bank_account 表格版，不用诉讼费退费版）、授权委托书（有代理时）、提交材料清单.md。
+- **执行 zx**：强制执行申请书（申请事项走强制执行措辞：请求履行生效文书+支付执行款+加倍迟延利息）、送达地址确认书、**当事人银行账户确认书**（同 sp，用 bank_account docx 表格版，旧 payee_account .doc 已弃用）、授权委托书（有代理时）、提交材料清单.md。
+- **证据目录**：默认不生成，两种案件都要显式 `--with-evidence` 或 `--only evidence` 才出。
 - **可选**（明确要求才做）：财产保全、延期/线上开庭、撤诉、追加被告、执行结案、网络查控、情况说明、仲裁三件套、债权转移、劳务委托书。统一出口：`render_documents.py --case-dir <案> --case-type sp --extra preservation,postpone_hearing`，`--list-extra` 列全部 key（当前 14 个）。正文取 `06运行记录/extra_docs.json`；**申请事项**有固定程式的由 `EXTRA_DEFAULT_APPLY` 给标准请求语；**事实与理由一律不给默认理由**——理由必须回答「为什么提这个申请」，模型/律师没写就留空并在清单列「需补写事由」，绝不拿诉状案情复述顶替。
 - **诉状模板选择**：默认通用多当事人版 `complaint_general`；只有律师明确要要素式且案由有对应模板才用 `complaint_elements_*`，否则一律 `complaint_general`。
 - **核心填充规则**：诉请与事实一律由脚本生成、措辞固定（`complaint_text.json` 不得覆盖诉请/案由/法院，只可微调事实与理由）；无值留空并清理空字段标点，禁止写「待补/待确认」；多当事人各占一行、多余行删除；性别/出生日期可从身份证号推导；证据清单优先由证据包生成正式目录，模型可在 `complaint_text.json` 写 `证据清单` 列表直接填表。

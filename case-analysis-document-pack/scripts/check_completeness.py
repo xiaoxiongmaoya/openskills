@@ -60,20 +60,28 @@ def check(case_dir: Path, analysis: Dict[str, Any] | None = None,
         else:
             missing.append({"field": field, "severity": severity, "hint": hint})
 
-    used_providers: set[str] = set()
+    is_zx = case_type == "zx"
+    law_providers: set[str] = set()
     for bucket_key in ("law_search", "case_search"):
         bucket = analysis.get(bucket_key) or {}
-        used_providers |= {str(k) for k in (bucket.get("providers") or {}).keys()}
+        providers = {str(k) for k in (bucket.get("providers") or {}).keys()}
+        if bucket_key == "law_search":
+            law_providers |= providers
 
-    item("第三方法律数据源", connected or bool(used_providers), "critical",
+    item("第三方法律数据源", connected or bool(law_providers), "critical",
          "至少连接一个第三方法律数据源（华宇元典 / 企查查法律数据）；本技能无本地知识库可兜底")
-    item("双源交叉核验", len(used_providers) >= 2, "warning",
-         "建议同时连上元典与企查查，法条与类案双源交叉核对后再定稿")
+    # 执行案件不做类案检索，双源核验只认法条两源即可
+    item("双源交叉核验", len(law_providers) >= 2, "warning",
+         "建议同时连上元典与企查查，法条双源交叉核对后再定稿"
+         + ("（执行案件只核验法条）" if is_zx else "，类案同核"))
     item("案件类型", case_type in {"sp", "zx"}, "critical", "明确是一审还是强制执行")
     item("案由", bool(_filled(summary.get("cause"))), "critical", "确定案由；不确定时列候选并让律师确认")
     item("原告/申请执行人", bool(_filled(summary.get("plaintiff"))), "critical", "补齐姓名/名称")
     item("被告/被执行人", bool(_filled(summary.get("defendant"))), "critical", "补齐姓名/名称")
-    item("诉讼请求/执行请求", bool(_filled(summary.get("claims"))), "critical", "写清请求事项与金额")
+    # 执行案件的执行请求由「执行依据 + 执行标的」刻画，脚本会自行生成申请事项措辞，
+    # 不要求 findings 重复填 claims（填了反而会与骨架重复追加）
+    if not is_zx:
+        item("诉讼请求", bool(_filled(summary.get("claims"))), "critical", "写清请求事项与金额")
     if case_type == "sp":
         item("标的额", bool(_filled(summary.get("amount"))), "critical", "补齐诉讼标的额")
     else:

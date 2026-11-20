@@ -436,7 +436,10 @@ def render_report(analysis: Dict[str, Any], chat: Dict[str, Any], mcp_status: Di
     out.append("")
 
     out += ["## 8. 类案检索", ""]
-    if cases:
+    if str(analysis.get("case_type") or "") == "zx":
+        out.append("执行案件未做类案检索：执行依据为生效判决，争点集中在申请执行时效、"
+                   "执行标的与财产查控，类案参考意义有限。")
+    elif cases:
         out += _md_table(["案号", "法院", "裁判日期", "来源", "数据源"],
                          [[c.get("case_number", ""), c.get("court", ""),
                            c.get("decision_date", ""), c.get("source_id", ""),

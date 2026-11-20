@@ -158,6 +158,17 @@ def build_queries(cause: str, focuses: List[str], names: List[str]) -> Dict[str,
     }
 
 
+def search_kinds(case_dir: Path) -> Tuple[str, ...]:
+    """需要检索的结果类型：执行案件（zx）只做法条，不做类案检索。
+
+    执行依据为生效判决，争点集中在时效/标的/财产，类案检索命中多为
+    『追加被执行人』等无关裁判，无实质参考价值，且多耗 2 次 MCP 调用。
+    """
+    spec = _load(case_dir / STATE_DIR / "spec.json") or {}
+    case_type = str(spec.get("case_type") or "").strip()
+    return ("law",) if case_type == "zx" else ("law", "case")
+
+
 def plan(case_dir: Path, cause: str, focus_arg: List[str], province: str,
          law_limit: int, case_limit: int) -> int:
     case_dir = case_dir.resolve()
@@ -177,8 +188,9 @@ def plan(case_dir: Path, cause: str, focus_arg: List[str], province: str,
     raw_dir.mkdir(parents=True, exist_ok=True)  # 预建目录，Agent 直接按 raw_file 落盘
 
     plan_items: List[Dict[str, Any]] = []
+    kinds = search_kinds(case_dir)
     for provider in ys.PROVIDERS:
-        for kind in ("law", "case"):
+        for kind in kinds:
             query = {
                 ("yuandian", "law"): queries["law"],
                 ("qcc", "law"): queries["law_qcc"],
@@ -205,6 +217,7 @@ def plan(case_dir: Path, cause: str, focus_arg: List[str], province: str,
         "focuses": focuses,
         "shorts": [_short_focus(f) for f in focuses],
         "province": ys._province_short(province) if province else "",
+        "kinds": list(kinds),
         "desensitized_names": names,
         "queries": queries,
         "calls": plan_items,
@@ -261,6 +274,9 @@ def ingest_all(case_dir: Path, raw_dir: Optional[Path], province: str, refresh: 
             continue
         provider, kind = matched
         key = f"{provider}.{kind}"
+        if kind not in search_kinds(case_dir):
+            results.append({"file": path.name, "skipped": f"执行案件跳过 {key}"})
+            continue
         if key in seen:
             results.append({"file": path.name, "skipped": f"重复的 {key}"})
             continue
@@ -273,7 +289,7 @@ def ingest_all(case_dir: Path, raw_dir: Optional[Path], province: str, refresh: 
             results.append({"file": path.name, "provider": provider, "kind": kind,
                             "ok": False, "error": str(exc)})
     for provider in ys.PROVIDERS:
-        for kind in ("law", "case"):
+        for kind in search_kinds(case_dir):
             if f"{provider}.{kind}" not in seen:
                 missing.append(f"{provider}.{kind}")
 

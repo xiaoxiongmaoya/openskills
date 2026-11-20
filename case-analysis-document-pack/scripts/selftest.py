@@ -43,8 +43,13 @@ def doc_text(path: Path) -> str:
     """取 docx 正文纯文本（合并所有段落，忽略格式）。"""
     if not zipfile.is_zipfile(path):
         return ""
-    with zipfile.ZipFile(path) as z:
-        xml = z.read("word/document.xml").decode("utf-8", "ignore")
+    try:
+        with zipfile.ZipFile(path) as z:
+            if "word/document.xml" not in z.namelist():
+                return ""
+            xml = z.read("word/document.xml").decode("utf-8", "ignore")
+    except (KeyError, OSError, zipfile.BadZipFile):
+        return ""
     return "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", xml, re.S))
 
 
@@ -122,9 +127,13 @@ def sweep_templates(root: Path, registry: Dict[str, Any],
             problems += scan_text(text, f"模板 {key}")
             # 被告/被申请人段落到原告证件号 = 串号
             if plaintiff_id:
-                for para in re.findall(r"<w:p[ >].*?</w:p>",
-                                       zipfile.ZipFile(dst).read("word/document.xml")
-                                       .decode("utf-8", "ignore"), re.S):
+                try:
+                    with zipfile.ZipFile(dst) as _z:
+                        _xml = (_z.read("word/document.xml").decode("utf-8", "ignore")
+                                if "word/document.xml" in _z.namelist() else "")
+                except (OSError, zipfile.BadZipFile):
+                    _xml = ""
+                for para in re.findall(r"<w:p[ >].*?</w:p>", _xml, re.S):
                     plain = "".join(re.findall(r"<w:t(?:\s[^>]*)?>(.*?)</w:t>", para, re.S))
                     if re.match(r"^(被申请人|被执行人|被告[：:])", plain.strip()) \
                             and plaintiff_id in plain:

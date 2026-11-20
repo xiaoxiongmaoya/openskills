@@ -24,6 +24,9 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 IMG_EXT = {".png", ".jpg", ".jpeg", ".bmp", ".webp", ".gif", ".tif", ".tiff"}
+# rename_images.py 生成的语义名副本前缀：副本只是给人看的别名，
+# 原件才是 parse/image_labels 的 key，体检与解析都跳过副本，避免误报未标注/重复计数
+SEMANTIC_PREFIX = "语义_"
 
 
 def _load(path: Path) -> Any:
@@ -41,7 +44,8 @@ def collect(case_dir: Path) -> Dict[str, Any]:
     images: List[str] = []
     if img_dir.exists():
         for p in sorted(img_dir.rglob("*")):
-            if p.is_file() and p.suffix.lower() in IMG_EXT and not p.name.startswith("."):
+            if (p.is_file() and p.suffix.lower() in IMG_EXT
+                    and not p.name.startswith(".") and not p.name.startswith(SEMANTIC_PREFIX)):
                 images.append(p.relative_to(case_dir).as_posix())
 
     labeled, missing = [], []

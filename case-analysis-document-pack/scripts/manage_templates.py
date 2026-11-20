@@ -325,7 +325,7 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
 
 DEFAULT_NEEDS = {
     "sp": ["delivery", "account", "evidence", "authorization"],
-    "zx": ["enforcement", "delivery", "payee_account", "evidence", "authorization"],
+    "zx": ["enforcement", "delivery", "bank_account", "evidence", "authorization"],
 }
 
 

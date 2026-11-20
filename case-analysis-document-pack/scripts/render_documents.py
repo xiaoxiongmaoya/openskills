@@ -168,13 +168,34 @@ def _id_gender(value: Any) -> str:
     return ""
 
 
-def _build_claims(case_dir: Path, cause: str, amount: str,
-                  raw_claims: Any) -> tuple[str, List[str]]:
-    """诉讼请求：骨架由规则固定生成，保证每次出稿措辞一致（Agent 不再手写正文）。
+def _case_ref(enforcement_basis: str) -> str:
+    """从执行依据里抽出『（YYYY）XXXXX号』案号，供执行申请措辞引用。"""
+    m = re.search(r"[（(]\s*\d{4}\s*[)）]\s*[^\s，,。；;]*?号", str(enforcement_basis or ""))
+    return m.group(0).strip() if m else ""
+
+
+def _build_claims(case_dir: Path, cause: str, amount: str, raw_claims: Any,
+                  case_type: str = "sp", enforcement_basis: str = "") -> tuple[str, List[str]]:
+    """诉讼请求/执行请求：骨架由规则固定生成，保证每次出稿措辞一致（Agent 不再手写正文）。
 
     raw_claims 只用于补充规则未覆盖的额外请求，不覆盖骨架措辞。
+    执行案件（zx）走强制执行措辞：请求履行生效判决 + 返还执行款 + 加倍迟延利息，
+    不套用民事起诉状的『判令被告向原告支付拖欠的… + 诉讼费』。
     返回 (整段文本, 分条列表)。
     """
+    if case_type == "zx":
+        claim_items: List[str] = []
+        ref = _case_ref(enforcement_basis)
+        base = f"履行{ref}生效法律文书确定的义务" if ref else "履行生效法律文书确定的义务"
+        claim_items.append(f"请求依法强制被执行人{base}")
+        if amount and amount not in ("（待确认）", "（待补充）", "（待确认金额）"):
+            claim_items.append(f"请求依法强制被执行人向申请执行人支付执行款{_amount_display(amount)}")
+        claim_items.append("请求依法强制被执行人加倍支付迟延履行期间的债务利息")
+        cleaned_x = [c.rstrip("；;。") for c in claim_items if c.strip()]
+        parts_x = [f"{i}. {c}{'；' if i < len(cleaned_x) else '。'}"
+                   for i, c in enumerate(cleaned_x, 1)]
+        return "\n".join(parts_x), parts_x
+
     if isinstance(raw_claims, str):
         extra_candidates = [c.strip() for c in re.split(r"[\n；;]", raw_claims) if c.strip()]
     elif isinstance(raw_claims, list):
@@ -310,8 +331,18 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
 
     # 诉讼请求/事实与理由/证据清单：骨架由规则生成，措辞脚本统一，Agent 不再手写正文
     raw_claims = summary.get("claims") or (spec.get("claims") or {}).get("ssqq") or []
-    claim_text, claim_parts = _build_claims(case_dir, cause, amount, raw_claims)
+    _ct = str(analysis.get("case_type") or spec.get("case_type") or "sp")
+    claim_text, claim_parts = _build_claims(
+        case_dir, cause, amount, raw_claims, _ct,
+        str(summary.get("enforcement_basis") or ""))
     facts_text = _build_narrative(analysis)
+    # 执行申请书的事实与理由：模板占位符由 fields 填，故在字段层用模型写的叙述段覆盖
+    # （一审诉状的覆盖发生在 complaint_mapping，两条路径不冲突）
+    if _ct == "zx":
+        _ctl = _load(case_dir / "06运行记录" / "complaint_text.json")
+        _agent_reason = str(_ctl.get("事实与理由") or "").strip() if isinstance(_ctl, dict) else ""
+        if _agent_reason:
+            facts_text = _agent_reason
     evidence_text = _build_evidence_text(case_dir, chat, findings)
 
     agent = spec.get("agent") or {}
@@ -670,7 +701,7 @@ def keep(paras: List[str]) -> List[str]:
 
 def render(case_dir: Path, case_type: str, only_complaint: bool = False,
            only: set[str] | None = None, skip_image_check: bool = False,
-           extra: set[str] | None = None) -> Dict[str, Any]:
+           extra: set[str] | None = None, with_evidence: bool = False) -> Dict[str, Any]:
     case_dir = case_dir.resolve()
     # 图片体检放最前：先确保材料看全了，再谈确认和生成
     if not skip_image_check:
@@ -901,10 +932,10 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             f"此致 {fields['受理法院']}", SIGN_LINE,
         ], append_paras=False)
         if not only_complaint:
-            add("收款账户确认书", "payee_account", "06-收款账户确认书", "收款账户确认书", [
-                f"申请执行人/领款人：{fields['申请执行人']}",
-                f"开户行：{fields['开户行']}    账号：{fields['账号']}", SIGN_LINE,
-            ])
+            # 执行案也用一审的 docx 表格版账户确认书：字段（户名/开户行/账号）与执行收款一致，
+            # 旧 payee_account 是 .doc 旧格式，程序写不进去，只能人工抄写，已弃用。
+            add_filled("账户确认书", "bank_account", "06-账户确认书", "当事人银行账户确认书",
+                       bank_account_mapping())
     else:
         key = complaint_key()
         label = "要素式起诉状" if key.startswith("complaint_elements") else "起诉状"
@@ -961,15 +992,18 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
             ])
         # 证据目录：模型可在 complaint_text.json 用列表写「证据清单」（名称+证明内容），
         # 脚本直接填进模板表格；不写才回落到证据包自动生成的文本清单（追加段落）。
+        # 证据目录默认不生成：律师需要时才用 --with-evidence 或 --only evidence 显式开启
+        want_evidence = with_evidence or (only is not None and "evidence" in only)
         ev_rows = None
-        _ctl = _load(case_dir / "06运行记录" / "complaint_text.json")
-        _ev = _ctl.get("证据清单") if isinstance(_ctl, dict) else None
-        if isinstance(_ev, list):
-            ev_rows = [r for r in _ev
-                       if isinstance(r, dict) and (r.get("名称") or r.get("证明内容"))]
-        add("证据目录", "evidence", "04-证据目录", "证据目录", [
-            f"提交人：{fields['原告']}", f"## 证据清单\n{fields['证据清单']}", SIGN_LINE,
-        ], append_paras=not ev_rows, evidence_rows=ev_rows)
+        if want_evidence:
+            _ctl = _load(case_dir / "06运行记录" / "complaint_text.json")
+            _ev = _ctl.get("证据清单") if isinstance(_ctl, dict) else None
+            if isinstance(_ev, list):
+                ev_rows = [r for r in _ev
+                           if isinstance(r, dict) and (r.get("名称") or r.get("证明内容"))]
+            add("证据目录", "evidence", "04-证据目录", "证据目录", [
+                f"提交人：{fields['原告']}", f"## 证据清单\n{fields['证据清单']}", SIGN_LINE,
+            ], append_paras=not ev_rows, evidence_rows=ev_rows)
         if meta.get("has_agent"):
             add("授权委托书", "authorization", "03-授权委托书", "授权委托书", [
                 f"委托人：{fields['委托人']}    受托人：{fields['受托人']}",
@@ -1113,6 +1147,8 @@ def main() -> int:
     ap.add_argument("--case-dir", required=True)
     ap.add_argument("--case-type", choices=["sp", "zx"], default="")
     ap.add_argument("--only-complaint", action="store_true", help="只生成诉状，不出整套材料")
+    ap.add_argument("--with-evidence", action="store_true",
+                    help="生成证据目录（默认不出；也可 --only evidence 单独生成）")
     ap.add_argument("--only", default="", help="只生成指定模板 key，逗号分隔，如 delivery,account")
     ap.add_argument("--extra", default="",
                     help="按需文书 key，逗号分隔（保全/延期开庭/撤诉/追加被告/执行结案/情况说明等），"
@@ -1134,7 +1170,8 @@ def main() -> int:
     only = {k.strip() for k in args.only.split(",") if k.strip()} if args.only else None
     extra = {k.strip() for k in args.extra.split(",") if k.strip()} if args.extra else None
     result = render(case_dir, case_type, only_complaint=args.only_complaint, only=only,
-                    skip_image_check=args.skip_image_check, extra=extra)
+                    skip_image_check=args.skip_image_check, extra=extra,
+                    with_evidence=args.with_evidence)
     if args.only_complaint:
         result["documents"] = [d for d in result["documents"] if "起诉状" in d or "申请书" in d]
     print(json.dumps(result, ensure_ascii=False, indent=2))
