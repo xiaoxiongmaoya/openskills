@@ -260,3 +260,7 @@ python ../court-civil-first-instance-filing/scripts/preflight_materials.py \
 - @references/document-slots.md — 文书与法院槽位映射
 - @references/document-rendering.md — 文书渲染细节（改模板/改填充逻辑时查阅）
 - @references/known-issues.md — 渲染踩过的坑与已落地防御
+
+## 许可
+
+源码开放；个人研究、学习、非商业用途免费使用；**任何商业用途需单独获得作者授权**。协议全文见仓库根目录 [LICENSE](../LICENSE)（PolyForm Noncommercial License 1.0.0）。

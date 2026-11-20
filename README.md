@@ -4,7 +4,7 @@
 
 ## 许可协议
 
-本项目采用 [PolyForm Noncommercial License 1.0.0](./LICENSE)：个人研究、学习、实验、非商业用途可自由使用；**任何商业用途需单独获得作者授权**。详见 [LICENSE](./LICENSE) 全文。
+本项目源码公开（开源），采用 [PolyForm Noncommercial License 1.0.0](./LICENSE)：个人研究、学习、实验、非商业用途免费使用；**任何商业用途需单独获得作者授权**。详见 [LICENSE](./LICENSE) 全文。两个技能的 `SKILL.md` 末尾同样标注此协议，保持一致。
 
 ## 技能列表
 

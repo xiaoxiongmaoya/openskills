@@ -352,3 +352,7 @@ python scripts/query_filing.py --case-dir "<案件目录>" --write --json-only  
 4. 请求间隔 ≥ 1 秒，单账号并发 1，失败指数退避，单链路 ≤ 3 次。
 5. 日志脱敏：不记密码、token、cookie、身份证号、手机号。
 6. 输出附免责声明：结果为辅助整理，最终以法院审核为准。
+
+## 许可
+
+源码开放；个人研究、学习、非商业用途免费使用；**任何商业用途需单独获得作者授权**。协议全文见仓库根目录 [LICENSE](../LICENSE)（PolyForm Noncommercial License 1.0.0）。
