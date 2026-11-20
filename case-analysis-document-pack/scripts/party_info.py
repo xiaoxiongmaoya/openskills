@@ -45,11 +45,37 @@ def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
 
+def _birth_from_id(idno: str) -> str:
+    """从 18 位身份证号第 7-14 位推导出生日期（YYYY-MM-DD）；不可靠则返回空串。"""
+    s = str(idno or "").strip()
+    if len(s) != 18 or not s[:17].isdigit():
+        return ""
+    y, m, d = s[6:10], s[10:12], s[12:14]
+    if not (y.isdigit() and m.isdigit() and d.isdigit()):
+        return ""
+    return f"{y}-{m}-{d}"
+
+
+def _sex_from_id(idno: str) -> str:
+    """从 18 位身份证号第 17 位奇偶推导性别（男/女）；不可靠则返回空串。"""
+    s = str(idno or "").strip()
+    if len(s) != 18 or not s[:17].isdigit():
+        return ""
+    return "男" if int(s[16]) % 2 == 1 else "女"
+
+
 def _norm_one(item: Dict[str, Any], role: str) -> Dict[str, str]:
+    idno = str(item.get("身份证号") or "").strip()
+    # 性别/出生日期：优先显式给值，否则从身份证号推导；民族不能推导，只取显式值（无则留空）
+    sex = str(item.get("性别") or "").strip() or _sex_from_id(idno)
+    birth = str(item.get("出生日期") or "").strip() or _birth_from_id(idno)
     return {
         "role": role,
         "name": str(item.get("姓名") or item.get("原告") or item.get("被告") or "").strip(),
-        "id": str(item.get("身份证号") or "").strip(),
+        "id": idno,
+        "sex": sex,
+        "nation": str(item.get("民族") or "").strip(),
+        "birth": birth,
         "phone": str(item.get("电话") or "").strip(),
         "address": str(item.get("送达地址") or item.get("住址") or "").strip(),
         "account_name": str(item.get("收款户名") or item.get("姓名") or "").strip(),

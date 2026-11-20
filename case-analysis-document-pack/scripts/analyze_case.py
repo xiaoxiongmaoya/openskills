@@ -69,7 +69,8 @@ def _merge_findings(findings: Dict[str, Any]) -> Dict[str, Any]:
                 continue
             cleaned.append({
                 "fact_id": item.get("fact_id") or f"F-{len(cleaned) + 1:04d}",
-                "text": str(item.get("text") or ""),
+                # 事实正文兼容 text / summary / fact 三种写法，避免 Agent 用 summary 时正文丢失
+                "text": str(item.get("text") or item.get("summary") or item.get("fact") or ""),
                 "date": str(item.get("date") or ""),
                 "source": {
                     "file": str(src.get("file") or ""),

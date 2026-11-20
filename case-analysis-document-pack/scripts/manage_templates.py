@@ -53,6 +53,14 @@ TEMPLATES: Dict[str, Dict[str, Any]] = {
         "title": "民事起诉状（普通版·通用）",
         "scope": ["sp"], "kind": "complaint",
     },
+    "complaint_general": {
+        # 通用多当事人版：一人一行，预留 2 原告 + 2 被告，按实际人数删多余行、无值留空。
+        # 占位符为语义命名：原告N姓名/性别/民族/出生日期/住址/身份证号/电话，被告N…，案由/诉讼请求/事实与理由/受理法院。
+        "file": "01-起诉与答辩/民事起诉状（通用多当事人版）.docx",
+        "src": "民事起诉状（通用多当事人版）.docx",
+        "title": "民事起诉状（通用多当事人版）",
+        "scope": ["sp"], "kind": "complaint",
+    },
     "complaint_elements_loan": {
         "file": "01-起诉与答辩/要素式起诉状（民间借贷纠纷）.docx",
         "src": "新借贷模板.docx",

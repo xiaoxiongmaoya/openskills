@@ -31,14 +31,39 @@ import confirm_gate  # noqa: E402
 import doc_slots  # noqa: E402
 import manage_templates as mt  # noqa: E402
 import party_info as pi  # noqa: E402
-from docx_helper import append_to_docx, fill_placeholders, find_placeholders, write_docx  # noqa: E402
+from docx_helper import append_to_docx, fill_complaint_rows, fill_placeholders, find_placeholders, write_docx  # noqa: E402
 
 SIGN_LINE = "（签字/捺印）：____________    日期：____年__月__日"
 DOC_FILL_NOTICE = "旧版 .doc 模板无法程序化写入：以下为应填写内容，请对照填入 .doc 原件后打印签字。"
 
 
+import re  # noqa: E402
+
+
 def _load(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def _amount_display(amount: str) -> str:
+    """把标的额规整成诉状用语：'12000元' -> '劳务报酬人民币12000元' 的金额部分。"""
+    text = str(amount or "").strip()
+    # 已是“人民币X元”或纯数字都统一成“人民币X元”
+    m = re.search(r"([\d,]+(?:\.\d+)?)\s*元?", text)
+    if m:
+        return f"人民币{m.group(1)}元"
+    return text
+
+
+def _has_lawyer_fee_evidence(case_dir: Path) -> bool:
+    """证据包是否含律师费支付凭证（据此决定是否把律师费列入诉请，不靠手写）。"""
+    pkg = _load(case_dir / "05案件信息" / "evidence_package.json")
+    for entry in (pkg.get("entries") or []):
+        if not isinstance(entry, dict) or entry.get("存疑"):
+            continue
+        purpose = str(entry.get("证明目的") or "")
+        if any(kw in purpose for kw in ("律师费", "代理费", "律师服务费", "维权费用")):
+            return True
+    return False
 
 
 def build_fields(case_dir: Path) -> Dict[str, str]:
@@ -64,19 +89,40 @@ def build_fields(case_dir: Path) -> Dict[str, str]:
     amount = str(summary.get("amount") or (spec.get("case") or {}).get("amount") or "（待确认）")
     court = str(summary.get("court") or "（待确认，管辖由律师确认）")
 
-    claim_text = str(summary.get("claims") or (spec.get("claims") or {}).get("ssqq") or "")
-    if not claim_text:
-        claim_text = "1. 请求判令被告履行还款义务；\n2. 请求判令被告承担本案诉讼费用。（待律师确认）"
+    # 诉讼请求：优先用结构化 claims（列表或分号文本），否则按规则由标的额+律师费凭证自动组装。
+    # 规则固化在此，Agent 不再手写诉状正文。编号自动生成，无金额项不写。
+    raw_claims = summary.get("claims") or (spec.get("claims") or {}).get("ssqq") or []
+    if isinstance(raw_claims, str):
+        claim_items = [c.strip() for c in re.split(r"[\n；;]", raw_claims) if c.strip()]
+    elif isinstance(raw_claims, list):
+        claim_items = [str(c).strip() for c in raw_claims if str(c).strip()]
+    else:
+        claim_items = []
+    if not claim_items:
+        # 无结构化诉请时按标的额与律师费凭证兜底（仍不编造金额）
+        claim_items = []
+        if amount and amount not in ("（待确认）", "（待补充）"):
+            claim_items.append(f"判令被告向原告支付{_amount_display(amount)}")
+        if _has_lawyer_fee_evidence(case_dir):
+            claim_items.append("判令被告承担原告为实现债权支出的律师费（以票据金额为准）")
+        claim_items.append("本案诉讼费用由被告承担")
+    # 统一去除已有编号前缀后重新编号
+    cleaned_claims = []
+    for c in claim_items:
+        c = re.sub(r"^\s*\d+[.、．]\s*", "", c)
+        c = c.rstrip("；;。")
+        if c:
+            cleaned_claims.append(c)
+    claim_text = "\n".join(f"{i}. {c}；" for i, c in enumerate(cleaned_claims, 1))
 
+    # 事实与理由：由 facts 自动串成叙事段，剔除内部来源/置信度标注；无事实则留空。
     facts = analysis.get("facts") or []
-    fact_lines: List[str] = []
-    for idx, fact in enumerate(facts[:30], 1):
-        src = fact.get("source") or {}
-        fact_lines.append(
-            f"{idx}. {fact.get('text', '')}（来源：{src.get('file', '')} {src.get('locator', '')}；"
-            f"置信度：{fact.get('confidence', 'medium')}）"
-        )
-    facts_text = "\n".join(fact_lines) or "（暂无可引用事实，请律师补充）"
+    narrative: List[str] = []
+    for fact in facts[:40]:
+        text = str(fact.get("text") or "").strip()
+        if text:
+            narrative.append(text if text.endswith(("。", "；", "！")) else text + "。")
+    facts_text = "".join(narrative) or ""
 
     sources = chat.get("sources") or []
     evidence_lines: List[str] = []
@@ -440,11 +486,36 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         }
 
     def complaint_key() -> str:
-        """诉状取模板：指定普通版就用普通版；否则按案由挑要素式，挑不到回落普通版。"""
+        """诉状取模板：指定要素式且案由有对应模板才用要素式，否则用通用多当事人版。
+
+        通用版按“一人一行”填，多被告各占一行，无值留空，多余行删除。
+        """
         if fmt != "elements":
-            return "complaint_ordinary"
+            return "complaint_general"
         picked = mt.complaint_template(str(meta.get("cause") or ""))
-        return picked or "complaint_ordinary"
+        return picked or "complaint_general"
+
+    def complaint_row_mapping(pinfo: Dict[str, Any], m: Dict[str, str]) -> Dict[str, str]:
+        """构造通用多当事人诉状的逐行占位符映射：原告N/被告N 的姓名/性别/民族/出生日期/住址/身份证号/电话。"""
+        out: Dict[str, str] = {}
+        fields_of = ("姓名", "性别", "民族", "出生日期", "住址", "身份证号", "电话")
+        for prefix, people in (("原告", pinfo.get("plaintiffs") or []),
+                               ("被告", pinfo.get("defendants") or [])):
+            for i, p in enumerate(people, 1):
+                src = {
+                    "姓名": p.get("name", ""), "性别": p.get("sex", ""),
+                    "民族": p.get("nation", ""), "出生日期": p.get("birth", ""),
+                    "住址": p.get("address", ""), "身份证号": p.get("id", ""),
+                    "电话": p.get("phone", ""),
+                }
+                for f in fields_of:
+                    out[f"{prefix}{i}{f}"] = src[f]
+        # 单值占位符
+        out["案由"] = m.get("案由", "")
+        out["诉讼请求"] = m.get("诉讼请求", "")
+        out["事实与理由"] = m.get("事实与理由", "")
+        out["受理法院"] = m.get("受理法院", "")
+        return out
 
     if case_type == "zx":
         add("强制执行申请书", "enforcement", "01-强制执行申请书", "强制执行申请书", [
@@ -464,7 +535,28 @@ def render(case_dir: Path, case_type: str, only_complaint: bool = False,
         label = "要素式起诉状" if key.startswith("complaint_elements") else "起诉状"
         tpl_file = Path(mt.ensure_template(root, key, registry)["file"])
         complaint_stem = "01-起诉状"
-        if zipfile.is_zipfile(tpl_file) and find_placeholders(tpl_file):
+        if key == "complaint_general" and zipfile.is_zipfile(tpl_file):
+            # 通用多当事人版：按人数逐行填，多被告各占一行，无值留空，多余行删除
+            if only is None or key in only:
+                entry = mt.ensure_template(root, key, registry)
+                info = mt.resolve(key)
+                target = drafts / (complaint_stem + ".docx")
+                shutil.copyfile(Path(entry["file"]), target)
+                _pinfo = pi.load(case_dir)
+                row_map = complaint_row_mapping(_pinfo, complaint_mapping())
+                fill_complaint_rows(target, len(_pinfo.get("plaintiffs") or []),
+                                    len(_pinfo.get("defendants") or []), row_map)
+                docs.append({
+                    "name": label, "file": f"04未签稿/{target.name}",
+                    "slot": doc_slots.slot_name_for(label, case_type),
+                    "slot_code": doc_slots.slot_code_for(label, case_type),
+                    "template": f"{info['title']}（{info['src']}）",
+                    "template_key": key, "template_status": info["status"],
+                    "template_origin": str(info["path"]),
+                    "inject_mode": "row_filled", "sign_positions": [SIGN_LINE],
+                    "status": "generated",
+                })
+        elif zipfile.is_zipfile(tpl_file) and find_placeholders(tpl_file):
             # 通用占位符模板：直接填，保留原文版式，无值留空
             add_filled(label, key, complaint_stem, "民事起诉状")
         else:
